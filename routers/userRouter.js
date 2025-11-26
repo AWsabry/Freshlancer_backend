@@ -16,6 +16,7 @@ router.use(authController.protect);
 router.get('/me', authController.getMe);
 router.patch('/updateMe', authController.updateMe);
 router.patch('/updateMyPassword', authController.updatePassword);
+router.get('/platform-stats', authController.getPlatformStats);
 
 // Resume upload/delete routes
 router.post('/uploadResume', uploadResume.single('resume'), authController.uploadResume);

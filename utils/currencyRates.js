@@ -49,10 +49,11 @@ const CURRENCY_RATES = {
 };
 
 // Base premium plan price in USD
+// Note: Prices are optimized for student market (competitive pricing)
 const BASE_PREMIUM_PRICES = {
-  monthly: 9.99,
-  quarterly: 24.99,
-  yearly: 79.99,
+  monthly: 4.99,   // ~247 EGP - affordable for students
+  quarterly: 12.99, // ~643 EGP - save 13% vs monthly
+  yearly: 49.99,   // ~2,474 EGP - save 16% vs monthly
 };
 
 /**

@@ -661,3 +661,30 @@ exports.deleteResume = catchAsync(async (req, res, next) => {
     },
   });
 });
+
+// @desc    Get platform statistics
+// @route   GET /api/v1/auth/platform-stats
+// @access  Public (authenticated)
+exports.getPlatformStats = catchAsync(async (req, res, next) => {
+  // Count total students
+  const totalStudents = await User.countDocuments({ role: 'student', active: true });
+
+  // Count total clients
+  const totalClients = await User.countDocuments({ role: 'client', active: true });
+
+  // Count verified students
+  const verifiedStudents = await User.countDocuments({
+    role: 'student',
+    active: true,
+    'studentProfile.isVerified': true
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      totalStudents,
+      totalClients,
+      verifiedStudents,
+    },
+  });
+});
