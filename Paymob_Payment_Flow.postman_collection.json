@@ -1,0 +1,577 @@
+{
+  "info": {
+    "_postman_id": "paymob-flow-1234-5678-90ab-cdef12345678",
+    "name": "Paymob Payment Flow - Subscription Upgrade",
+    "description": "Complete payment flow documentation for Paymob integration. This collection demonstrates the entire flow from initiating a subscription upgrade to verifying payment status and upgrading user to premium.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Initiate Subscription Upgrade",
+      "item": [
+        {
+          "name": "Upgrade to Premium (EGP)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has success status', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});",
+                  "",
+                  "pm.test('Payment URL is returned', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('paymentUrl');",
+                  "    pm.expect(jsonData.data.paymentUrl).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Intention ID is returned', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('intentionId');",
+                  "    ",
+                  "    // Save intention ID for next requests",
+                  "    pm.environment.set('intention_id', jsonData.data.intentionId);",
+                  "    pm.environment.set('transaction_id', jsonData.data.transaction._id || jsonData.data.transaction);",
+                  "});",
+                  "",
+                  "pm.test('Transaction is created', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('transaction');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Ensure you have a valid auth token",
+                  "// This endpoint requires authentication"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "description": "JWT token from login"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currency\": \"EGP\",\n  \"billingCycle\": \"monthly\",\n  \"autoRenew\": true,\n  \"paymentMethod\": \"credit_card\",\n  \"billingData\": {\n    \"firstName\": \"Ahmed\",\n    \"lastName\": \"Mohamed\",\n    \"email\": \"ahmed@example.com\",\n    \"phoneNumber\": \"+201234567890\",\n    \"apartment\": \"Apt 5B\",\n    \"floor\": \"3rd Floor\",\n    \"street\": \"123 Main Street\",\n    \"building\": \"Building A\",\n    \"country\": \"EGY\",\n    \"state\": \"Cairo\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/subscriptions/upgrade",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "subscriptions", "upgrade"]
+            },
+            "description": "**Step 1: Initiate Subscription Upgrade**\n\nThis endpoint:\n1. Creates/updates subscription with `status: 'pending'` and `plan: 'premium'`\n2. Creates transaction with `status: 'pending'` and `type: 'subscription_payment'`\n3. Creates Paymob payment intention\n4. Saves `intentionId` in transaction metadata\n5. Returns `paymentUrl` to redirect user to Paymob\n\n**Required:**\n- Authentication token (Student role)\n- Currency: EGP (for Paymob integration)\n\n**Response includes:**\n- `paymentUrl`: URL to redirect user to Paymob payment page\n- `intentionId`: Paymob payment intention ID (save this!)\n- `transaction`: Transaction ID\n- `clientSecret`: Paymob client secret"
+          },
+          "response": [
+            {
+              "name": "Success Response",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{auth_token}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"currency\": \"EGP\",\n  \"billingCycle\": \"monthly\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/subscriptions/upgrade",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "subscriptions", "upgrade"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"data\": {\n    \"subscription\": {\n      \"_id\": \"...\",\n      \"plan\": \"premium\",\n      \"status\": \"pending\"\n    },\n    \"transaction\": \"...\",\n    \"paymentUrl\": \"https://accept.paymob.com/payment/...\",\n    \"clientSecret\": \"...\",\n    \"intentionId\": \"pi_test_9399040f087b41d0b8c7ac37a2d56c5a\",\n    \"message\": \"Please complete payment with Paymob\"\n  }\n}"
+            }
+          ]
+        }
+      ],
+      "description": "**Step 1: User initiates subscription upgrade**\n\nAfter this step:\n- User should be redirected to `paymentUrl`\n- User completes payment on Paymob\n- Paymob will call webhook and redirect user back"
+    },
+    {
+      "name": "2. Paymob Webhook (Payment Status Update)",
+      "item": [
+        {
+          "name": "Simulate Paymob Webhook - Success",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Webhook processed successfully', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "    pm.expect(jsonData.message).to.include('processed successfully');",
+                  "});",
+                  "",
+                  "console.log('Webhook processed - Transaction status updated to completed');",
+                  "console.log('Subscription upgraded to premium');",
+                  "console.log('User profile updated to premium tier');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"TRANSACTION\",\n  \"obj\": {\n    \"id\": 192036465,\n    \"pending\": false,\n    \"amount_cents\": 100000,\n    \"success\": true,\n    \"is_auth\": false,\n    \"is_capture\": false,\n    \"is_standalone_payment\": true,\n    \"is_voided\": false,\n    \"is_refunded\": false,\n    \"is_3d_secure\": true,\n    \"integration_id\": 4097558,\n    \"order\": {\n      \"id\": \"{{intention_id}}\",\n      \"amount_cents\": 100000,\n      \"currency\": \"EGP\"\n    },\n    \"created_at\": \"2024-01-15T10:30:00Z\",\n    \"currency\": \"EGP\",\n    \"source_data\": {\n      \"type\": \"card\",\n      \"sub_type\": \"visa\",\n      \"pan\": \"1234\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/paymob/webhook",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "paymob", "webhook"]
+            },
+            "description": "**Step 2A: Paymob Webhook Callback (PRIMARY)**\n\n**Called by:** Paymob server automatically when payment is processed\n\n**What happens:**\n1. Receives webhook data from Paymob\n2. Processes webhook and extracts `isPaid: true` if payment successful\n3. Finds transaction by `intentionId`\n4. Updates `transaction.status = 'completed'` ✅\n5. If payment successful:\n   - Updates subscription: `status: 'active'`, `plan: 'premium'` ✅\n   - Updates user: `studentProfile.subscriptionTier = 'premium'` ✅\n   - Creates notification ✅\n\n**Note:** This is the PRIMARY source of truth. Paymob calls this automatically.\n\n**To test:** Replace `{{intention_id}}` with actual intention ID from Step 1"
+          },
+          "response": [
+            {
+              "name": "Success Response",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"TRANSACTION\",\n  \"obj\": {\n    \"id\": 192036465,\n    \"success\": true,\n    \"pending\": false,\n    \"amount_cents\": 100000,\n    \"order\": {\n      \"id\": \"pi_test_9399040f087b41d0b8c7ac37a2d56c5a\"\n    },\n    \"currency\": \"EGP\"\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/v1/paymob/webhook",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "paymob", "webhook"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"message\": \"Webhook processed successfully\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Simulate Paymob Webhook - Failed",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Webhook processed', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"TRANSACTION\",\n  \"obj\": {\n    \"id\": 192036466,\n    \"pending\": false,\n    \"amount_cents\": 100000,\n    \"success\": false,\n    \"is_auth\": false,\n    \"is_capture\": false,\n    \"is_standalone_payment\": true,\n    \"is_voided\": false,\n    \"is_refunded\": false,\n    \"is_3d_secure\": false,\n    \"integration_id\": 4097558,\n    \"order\": {\n      \"id\": \"{{intention_id}}\",\n      \"amount_cents\": 100000,\n      \"currency\": \"EGP\"\n    },\n    \"created_at\": \"2024-01-15T10:30:00Z\",\n    \"currency\": \"EGP\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/paymob/webhook",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "paymob", "webhook"]
+            },
+            "description": "Simulates a failed payment webhook from Paymob. Transaction status will be set to 'failed'."
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 2A: Paymob Webhook (PRIMARY)**\n\nThis is called automatically by Paymob when payment status changes.\n\n**What it does:**\n- Updates transaction status to 'completed' if payment successful\n- Upgrades subscription to premium\n- Updates user profile to premium tier\n- Creates notification"
+    },
+    {
+      "name": "3. Success Redirect Callback",
+      "item": [
+        {
+          "name": "Payment Success Redirect",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 302 (Redirect)', function () {",
+                  "    pm.response.to.have.status(302);",
+                  "});",
+                  "",
+                  "pm.test('Redirects to frontend', function () {",
+                  "    const location = pm.response.headers.get('Location');",
+                  "    pm.expect(location).to.include('/payment/processing');",
+                  "    pm.expect(location).to.include('id=');",
+                  "});",
+                  "",
+                  "console.log('Success callback processed');",
+                  "console.log('Transaction status updated to completed');",
+                  "console.log('Subscription upgraded to premium');",
+                  "console.log('User redirected to frontend');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/paymob/success?id={{intention_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "paymob", "success"],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "{{intention_id}}",
+                  "description": "Payment intention ID from Step 1"
+                }
+              ]
+            },
+            "description": "**Step 2B: Success Redirect Callback (FALLBACK)**\n\n**Called by:** Paymob redirects user here after successful payment\n\n**What happens:**\n1. Receives `id` (intentionId) from query parameter\n2. Finds transaction by `intentionId`\n3. Updates `transaction.status = 'completed'` ✅\n4. If transaction type is `'subscription_payment'`:\n   - Updates subscription: `plan: 'premium'`, `status: 'active'` ✅\n   - Updates user: `studentProfile.subscriptionTier = 'premium'` ✅\n   - Creates notification ✅\n5. Redirects to: `${FRONTEND_URL}/payment/processing?id=${id}`\n\n**Note:** This is a FALLBACK. The webhook (Step 2A) is the primary source of truth.\n\n**To test:** Replace `{{intention_id}}` with actual intention ID from Step 1"
+          },
+          "response": [
+            {
+              "name": "Redirect Response",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/paymob/success?id=pi_test_9399040f087b41d0b8c7ac37a2d56c5a",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "paymob", "success"],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "pi_test_9399040f087b41d0b8c7ac37a2d56c5a"
+                    }
+                  ]
+                }
+              },
+              "status": "Found",
+              "code": 302,
+              "_postman_previewlanguage": "html",
+              "header": [
+                {
+                  "key": "Location",
+                  "value": "http://localhost:3000/payment/processing?id=pi_test_9399040f087b41d0b8c7ac37a2d56c5a"
+                }
+              ],
+              "cookie": [],
+              "body": ""
+            }
+          ]
+        }
+      ],
+      "description": "**Step 2B: Success Redirect (FALLBACK)**\n\nThis is called when Paymob redirects the user back after payment.\n\n**What it does:**\n- Updates transaction status to 'completed'\n- Upgrades subscription to premium\n- Updates user profile to premium tier\n- Redirects user to frontend"
+    },
+    {
+      "name": "4. Check Payment Status",
+      "item": [
+        {
+          "name": "Get Payment Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has success status', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});",
+                  "",
+                  "pm.test('Payment status is returned', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('paymentStatus');",
+                  "    pm.expect(jsonData.data).to.have.property('isPaid');",
+                  "    pm.expect(jsonData.data.isPaid).to.be.a('boolean');",
+                  "});",
+                  "",
+                  "pm.test('Intention ID matches', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data.intentionId).to.eql(pm.environment.get('intention_id'));",
+                  "});",
+                  "",
+                  "// Log payment status",
+                  "const jsonData = pm.response.json();",
+                  "console.log('Payment Status:', jsonData.data.paymentStatus);",
+                  "console.log('Is Paid:', jsonData.data.isPaid);",
+                  "console.log('Transaction Status:', jsonData.data.paymentStatus === 'PROCESSED' ? 'Completed' : 'Pending/Failed');",
+                  "",
+                  "if (jsonData.data.isPaid) {",
+                  "    console.log('✅ Payment successful! User upgraded to premium.');",
+                  "} else {",
+                  "    console.log('⏳ Payment still pending or failed.');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/paymob/payment-status?id={{intention_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "paymob", "payment-status"],
+              "query": [
+                {
+                  "key": "id",
+                  "value": "{{intention_id}}",
+                  "description": "Payment intention ID from Step 1"
+                }
+              ]
+            },
+            "description": "**Step 3: Check Payment Status**\n\n**Called by:** Frontend polling after redirect from Paymob\n\n**What happens:**\n1. Receives `id` (intentionId) from query parameter\n2. Finds transaction by `intentionId`\n3. Returns payment status from database\n4. Returns `isPaid: true` if `transaction.status === 'completed'`\n\n**Response when payment is successful:**\n```json\n{\n  \"status\": \"success\",\n  \"data\": {\n    \"intentionId\": \"pi_test_...\",\n    \"paymentStatus\": \"PROCESSED\",\n    \"isPaid\": true,\n    \"transactionId\": \"...\",\n    \"amount\": 100,\n    \"currency\": \"EGP\",\n    \"type\": \"subscription_payment\",\n    \"completedAt\": 1234567890\n  }\n}\n```\n\n**Response when payment is pending:**\n```json\n{\n  \"status\": \"success\",\n  \"data\": {\n    \"paymentStatus\": \"PENDING\",\n    \"isPaid\": false\n  }\n}\n```\n\n**To test:** Replace `{{intention_id}}` with actual intention ID from Step 1"
+          },
+          "response": [
+            {
+              "name": "Payment Successful",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/paymob/payment-status?id=pi_test_9399040f087b41d0b8c7ac37a2d56c5a",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "paymob", "payment-status"],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "pi_test_9399040f087b41d0b8c7ac37a2d56c5a"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"data\": {\n    \"intentionId\": \"pi_test_9399040f087b41d0b8c7ac37a2d56c5a\",\n    \"transactionId\": \"65a1b2c3d4e5f6g7h8i9j0k1\",\n    \"paymentStatus\": \"PROCESSED\",\n    \"isPaid\": true,\n    \"amount\": 100,\n    \"currency\": \"EGP\",\n    \"type\": \"subscription_payment\",\n    \"completedAt\": 1705312800000,\n    \"user\": {\n      \"id\": \"65a1b2c3d4e5f6g7h8i9j0k2\",\n      \"name\": \"Ahmed Mohamed\",\n      \"email\": \"ahmed@example.com\"\n    }\n  }\n}"
+            },
+            {
+              "name": "Payment Pending",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/paymob/payment-status?id=pi_test_9399040f087b41d0b8c7ac37a2d56c5a",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "paymob", "payment-status"],
+                  "query": [
+                    {
+                      "key": "id",
+                      "value": "pi_test_9399040f087b41d0b8c7ac37a2d56c5a"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"status\": \"success\",\n  \"data\": {\n    \"intentionId\": \"pi_test_9399040f087b41d0b8c7ac37a2d56c5a\",\n    \"transactionId\": \"65a1b2c3d4e5f6g7h8i9j0k1\",\n    \"paymentStatus\": \"PENDING\",\n    \"isPaid\": false,\n    \"amount\": 100,\n    \"currency\": \"EGP\",\n    \"type\": \"subscription_payment\",\n    \"completedAt\": null,\n    \"user\": {\n      \"id\": \"65a1b2c3d4e5f6g7h8i9j0k2\",\n      \"name\": \"Ahmed Mohamed\",\n      \"email\": \"ahmed@example.com\"\n    }\n  }\n}"
+            }
+          ]
+        }
+      ],
+      "description": "**Step 3: Frontend checks payment status**\n\nThis endpoint is called by the frontend to verify if payment was successful.\n\n**What it returns:**\n- `isPaid: true` when payment is successful\n- `paymentStatus: 'PROCESSED'` for completed payments\n- `paymentStatus: 'PENDING'` for pending payments\n- `paymentStatus: 'FAILED'` for failed payments"
+    },
+    {
+      "name": "5. Verify Payment (Alternative)",
+      "item": [
+        {
+          "name": "Verify Payment by Intention ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has success status', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});",
+                  "",
+                  "pm.test('Payment status is returned', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('paymentStatus');",
+                  "    pm.expect(jsonData.data).to.have.property('isPaid');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "description": "JWT token (required for this endpoint)"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/paymob/verify/{{intention_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "paymob", "verify", "{{intention_id}}"]
+            },
+            "description": "**Alternative: Verify Payment (Protected)**\n\nThis is an authenticated endpoint that returns the same information as `/payment-status` but requires authentication.\n\n**Note:** This endpoint does NOT call Paymob API (GET method not allowed). It only returns the status from the database.\n\n**To test:** Replace `{{intention_id}}` with actual intention ID from Step 1"
+          },
+          "response": []
+        }
+      ],
+      "description": "Alternative endpoint to check payment status (requires authentication)"
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string",
+      "description": "JWT token from login endpoint"
+    },
+    {
+      "key": "intention_id",
+      "value": "",
+      "type": "string",
+      "description": "Payment intention ID returned from Step 1"
+    },
+    {
+      "key": "transaction_id",
+      "value": "",
+      "type": "string",
+      "description": "Transaction ID returned from Step 1"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global pre-request script",
+          "// Ensure base_url is set"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test script",
+          "// Add any global tests here"
+        ]
+      }
+    }
+  ]
+}
+
