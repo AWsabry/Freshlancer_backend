@@ -7,7 +7,6 @@ const userSchema = new mongoose.Schema({
   name: {
     type: String,
     required: [true, 'user must have a name'],
-    unique: true,
     trim: true,
     maxlength: [40, 'a user name must have less or equal then 40 characters'],
     minlength: [5, 'a user name must have more or equal then 5 characters'],
@@ -161,7 +160,7 @@ const userSchema = new mongoose.Schema({
     // Experience and rates
     experienceLevel: {
       type: String,
-      enum: ['Beginner', 'Intermediate', 'Advanced'],
+      enum: ['Beginner', 'Intermediate', 'Advanced', 'Expert'],
     },
     yearsOfExperience: {
       type: Number,

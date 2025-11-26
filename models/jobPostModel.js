@@ -94,8 +94,8 @@ const jobPostSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Job post must specify experience level'],
     enum: {
-      values: ['Beginner', 'Intermediate', 'Advanced'],
-      message: 'Experience level must be Beginner, Intermediate, or Advanced',
+      values: ['Beginner', 'Intermediate', 'Advanced', 'Expert'],
+      message: 'Experience level must be Beginner, Intermediate, Advanced, or Expert',
     },
   },
   projectDuration: {

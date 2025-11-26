@@ -76,6 +76,19 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     student.studentProfile.applicationsUsedThisMonth = 0;
     student.studentProfile.applicationLimitResetDate = nextResetDate;
     await student.save({ validateBeforeSave: false });
+
+    // Also reset the subscription model
+    const Subscription = require('../models/subscriptionModel');
+    const subscription = await Subscription.findOne({
+      student: userId,
+      status: 'active',
+    });
+
+    if (subscription) {
+      subscription.applicationsUsedThisMonth = 0;
+      subscription.limitResetDate = nextResetDate;
+      await subscription.save();
+    }
   }
 
   // Check application limits based on subscription tier
@@ -132,6 +145,18 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   }
 
   await student.save({ validateBeforeSave: false });
+
+  // Also update the subscription model to keep it in sync
+  const Subscription = require('../models/subscriptionModel');
+  const subscription = await Subscription.findOne({
+    student: userId,
+    status: 'active',
+  });
+
+  if (subscription) {
+    subscription.applicationsUsedThisMonth = applicationsUsed + 1;
+    await subscription.save();
+  }
 
   // Increment applicationsCount in JobPost
   await JobPost.findByIdAndUpdate(
@@ -788,6 +813,11 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   // Filter by experience level
   if (req.query.experienceLevel) {
     query.relevantExperienceLevel = req.query.experienceLevel;
+  }
+
+  // Filter by subscription tier
+  if (req.query.subscriptionTier) {
+    query['student.studentProfile.subscriptionTier'] = req.query.subscriptionTier;
   }
 
   // Filter by status

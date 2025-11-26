@@ -66,6 +66,18 @@ exports.checkApplicationLimit = catchAsync(async (req, res, next) => {
     student.studentProfile.applicationsUsedThisMonth = 0;
     student.studentProfile.applicationLimitResetDate = nextResetDate;
     await student.save({ validateBeforeSave: false });
+
+    // Also reset the subscription model to keep it in sync
+    const subscription = await Subscription.findOne({
+      student: req.user._id,
+      status: 'active',
+    });
+
+    if (subscription) {
+      subscription.applicationsUsedThisMonth = 0;
+      subscription.limitResetDate = nextResetDate;
+      await subscription.save();
+    }
   }
 
   // Get subscription tier and limits
