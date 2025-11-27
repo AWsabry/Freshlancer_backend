@@ -802,52 +802,68 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     return next(new AppError('You can only view applications for your own jobs', 403));
   }
 
-  // Build query
-  const query = { jobPost: jobId };
+  // Build aggregation pipeline for proper filtering
+  const pipeline = [
+    { $match: { jobPost: jobPost._id } },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'student',
+        foreignField: '_id',
+        as: 'student',
+      },
+    },
+    { $unwind: '$student' },
+  ];
 
-  // Filter by nationality
-  if (req.query.nationality) {
-    query['student.nationality'] = req.query.nationality;
-  }
+  // Apply filters
+  const matchStage = {};
 
   // Filter by experience level
   if (req.query.experienceLevel) {
-    query.relevantExperienceLevel = req.query.experienceLevel;
-  }
-
-  // Filter by subscription tier
-  if (req.query.subscriptionTier) {
-    query['student.studentProfile.subscriptionTier'] = req.query.subscriptionTier;
+    matchStage.relevantExperienceLevel = req.query.experienceLevel;
   }
 
   // Filter by status
   if (req.query.status) {
-    query.status = req.query.status;
+    matchStage.status = req.query.status;
   }
 
-  // Get all applications with student info
-  let mongoQuery = JobApplication.find(query).populate({
-    path: 'student',
-    select: 'name email photo age nationality phone location studentProfile',
-  });
+  // Filter by nationality
+  if (req.query.nationality) {
+    matchStage['student.nationality'] = req.query.nationality;
+  }
 
-  // Sorting
+  // Filter by subscription tier
+  if (req.query.subscriptionTier) {
+    matchStage['student.studentProfile.subscriptionTier'] = req.query.subscriptionTier;
+  }
+
+  // Add match stage if there are filters
+  if (Object.keys(matchStage).length > 0) {
+    pipeline.push({ $match: matchStage });
+  }
+
+  // Add sorting
   const sortBy = req.query.sortBy || 'createdAt';
-  const sortOrder = req.query.sortOrder === 'asc' ? '' : '-';
-  mongoQuery = mongoQuery.sort(`${sortOrder}${sortBy}`);
+  const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+  pipeline.push({ $sort: { [sortBy]: sortOrder } });
 
-  // Pagination
+  // Get total count before pagination
+  const countPipeline = [...pipeline, { $count: 'total' }];
+  const countResult = await JobApplication.aggregate(countPipeline);
+  const total = countResult.length > 0 ? countResult[0].total : 0;
+
+  // Add pagination
   const page = req.query.page * 1 || 1;
   const limit = req.query.limit * 1 || 10;
   const skip = (page - 1) * limit;
 
-  mongoQuery = mongoQuery.skip(skip).limit(limit);
+  pipeline.push({ $skip: skip });
+  pipeline.push({ $limit: limit });
 
-  // Execute query
-  const applications = await mongoQuery;
-
-  // Get total count for pagination
-  const total = await JobApplication.countDocuments(query);
+  // Execute aggregation
+  const applications = await JobApplication.aggregate(pipeline);
 
   // Get unique nationalities for filter dropdown
   const uniqueNationalities = await JobApplication.aggregate([

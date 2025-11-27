@@ -332,6 +332,10 @@ const userSchema = new mongoose.Schema({
         'Other',
       ],
     },
+    isStartup: {
+      type: Boolean,
+      default: false,
+    },
     companyWebsite: String,
     companyDescription: {
       type: String,
