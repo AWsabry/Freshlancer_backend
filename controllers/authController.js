@@ -64,8 +64,11 @@ const createSendToken = (user, status, req, res, message = null) => {
 };
 
 exports.signup = catchAsync(async (req, res, next) => {
+  // Check if email already exists
   let user = await User.find({ email: req.body.email });
-  if (user.length > 0) return next(new AppError('Email already exist', 400));
+  if (user.length > 0) {
+    return next(new AppError('This email address is already registered. Please sign in or use a different email.', 400));
+  }
 
 
   // Prepare user data with enhanced profile initialization
@@ -103,12 +106,38 @@ exports.signup = catchAsync(async (req, res, next) => {
       certifications: [],
       availability: 'Available',
     };
+
+    // Add student profile data from registration form if provided
+    if (req.body.studentProfile) {
+      if (req.body.studentProfile.university) {
+        userData.studentProfile.university = req.body.studentProfile.university;
+      }
+      if (req.body.studentProfile.major) {
+        userData.studentProfile.major = req.body.studentProfile.major;
+      }
+      if (req.body.studentProfile.graduationYear) {
+        userData.studentProfile.graduationYear = req.body.studentProfile.graduationYear;
+      }
+    }
   } else if (req.body.role === 'client') {
     userData.clientProfile = {
       paymentMethods: [],
       verificationDocuments: [],
       isVerified: false,
     };
+
+    // Add client profile data from registration form if provided
+    if (req.body.clientProfile) {
+      if (req.body.clientProfile.companyName) {
+        userData.clientProfile.companyName = req.body.clientProfile.companyName;
+      }
+      if (req.body.clientProfile.industry) {
+        userData.clientProfile.industry = req.body.clientProfile.industry;
+      }
+      if (req.body.clientProfile.isStartup !== undefined) {
+        userData.clientProfile.isStartup = req.body.clientProfile.isStartup;
+      }
+    }
   }
 
   const newUser = await User.create(userData);
@@ -185,7 +214,7 @@ exports.protect = catchAsync(async (req, res, next) => {
 
   //3)check if user still exist
   const currentUser = await User.findById(decoded.id);
-  if (!currentUser) return next(new AppError('user token dose not exist', 401));
+  if (!currentUser) return next(new AppError('Your account no longer exists. Please contact support if you believe this is an error.', 401));
 
   //3.5)check if user account is deleted
   if (currentUser.active === false) {

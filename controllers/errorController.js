@@ -1,27 +1,69 @@
 const AppError = require('../utils/AppError');
 
 const handleCastErrorDB = (err) => {
-  const message = `Invalid ${err.path}: ${err.value}`;
+  const message = `The information you provided is not valid. Please check and try again.`;
   return new AppError(message, 400);
 };
 
 const handleDuplicateFieldsDB = (err) => {
-  const value = err.errmsg.match(/(["'])(\\?.)*?\1/)[0];
-  const message = `Duplicate field value: ${value}. Please use another value`;
+  // Extract field name from error
+  let field = 'This information';
+  let message = 'This information is already registered. Please use a different one.';
+
+  if (err.keyValue) {
+    const keys = Object.keys(err.keyValue);
+    if (keys.length > 0) {
+      const fieldName = keys[0];
+      if (fieldName === 'email') {
+        message = 'This email address is already registered. Please use a different email or try logging in.';
+      } else if (fieldName === 'name') {
+        message = 'This name is already taken. Please use a different name.';
+      } else {
+        message = `This ${fieldName} is already registered. Please use a different one.`;
+      }
+    }
+  }
+
   return new AppError(message, 400);
 };
 
 const handleValidationErrorDB = (err) => {
-  const errors = Object.values(err.errors).map((el) => el.message);
-  const message = `Invalid input data. ${errors.join('. ')}`;
+  const errors = Object.values(err.errors).map((el) => {
+    // Make validation messages more user-friendly
+    let message = el.message;
+
+    // Clean up mongoose validation messages
+    if (message.includes('Path')) {
+      message = message.replace(/Path `(\w+)` /g, '');
+    }
+    if (message.includes('is required')) {
+      const field = el.path || 'This field';
+      const fieldName = field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
+      message = `${fieldName} is required`;
+    }
+    if (message.includes('is shorter than')) {
+      const field = el.path || 'This field';
+      const fieldName = field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
+      message = `${fieldName} is too short. Please enter at least ${el.properties?.minlength || 'the required'} characters`;
+    }
+    if (message.includes('is longer than')) {
+      const field = el.path || 'This field';
+      const fieldName = field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
+      message = `${fieldName} is too long. Please enter no more than ${el.properties?.maxlength || 'the allowed'} characters`;
+    }
+
+    return message;
+  });
+
+  const message = errors.join('. ');
   return new AppError(message, 400);
 };
 
 const handleJsonWebTokenError = () =>
-  new AppError('invalid token, please login again', 401);
+  new AppError('Your session is invalid. Please sign in again to continue.', 401);
 
 const handleTokenExpiredError = () =>
-  new AppError('expired token, please login again', 401);
+  new AppError('Your session has expired. Please sign in again to continue.', 401);
 
 const sendErrorDev = (err, res) => {
   res.status(err.statusCode).json({
@@ -46,7 +88,7 @@ const sendErrorProd = (err, res) => {
     console.error('ERROR', err);
     res.status(500).json({
       status: 'error',
-      message: 'internal server error!!!',
+      message: 'Something went wrong on our end. Please try again or contact support if the issue persists.',
     });
   }
 };
