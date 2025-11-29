@@ -1,6 +1,7 @@
 const User = require('../models/userModel');
 const JobApplication = require('../models/jobApplicationModel');
 const JobPost = require('../models/jobPostModel');
+const Package = require('../models/packageModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 
@@ -185,6 +186,8 @@ exports.getAllApplications = catchAsync(async (req, res, next) => {
 
 // Get dashboard statistics
 exports.getDashboardStats = catchAsync(async (req, res, next) => {
+  const Subscription = require('../models/subscriptionModel');
+  
   const [
     totalUsers,
     totalStudents,
@@ -194,6 +197,9 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
     activeJobs,
     pendingApplications,
     recentUsers,
+    totalSubscriptions,
+    premiumSubscriptions,
+    freeSubscriptions,
   ] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ role: 'student' }),
@@ -206,6 +212,9 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
       .select('name email role createdAt')
       .sort('-createdAt')
       .limit(10),
+    Subscription.countDocuments({ status: 'active' }),
+    Subscription.countDocuments({ status: 'active', plan: 'premium' }),
+    Subscription.countDocuments({ status: 'active', plan: 'free' }),
   ]);
 
   res.status(200).json({
@@ -219,6 +228,9 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
         totalJobs,
         activeJobs,
         pendingApplications,
+        totalSubscriptions,
+        premiumSubscriptions,
+        freeSubscriptions,
       },
       recentUsers,
     },
@@ -464,5 +476,181 @@ exports.rejectVerificationDocument = catchAsync(async (req, res, next) => {
     data: {
       document,
     },
+  });
+});
+
+// ==================== PACKAGE MANAGEMENT ====================
+
+// Get all packages
+exports.getAllPackages = catchAsync(async (req, res, next) => {
+  const { isActive, type, page = 1, limit = 50 } = req.query;
+
+  const query = {};
+  if (isActive !== undefined) {
+    query.isActive = isActive === 'true';
+  }
+  if (type) {
+    query.type = type;
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [packages, totalCount] = await Promise.all([
+    Package.find(query)
+      .sort({ displayOrder: 1, createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit)),
+    Package.countDocuments(query),
+  ]);
+
+  res.status(200).json({
+    status: 'success',
+    results: packages.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: parseInt(page),
+    data: {
+      packages,
+    },
+  });
+});
+
+// Get package by ID
+exports.getPackageById = catchAsync(async (req, res, next) => {
+  const package = await Package.findById(req.params.id);
+
+  if (!package) {
+    return next(new AppError('Package not found', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      package,
+    },
+  });
+});
+
+// Create new package
+exports.createPackage = catchAsync(async (req, res, next) => {
+  const {
+    name,
+    type,
+    pointsTotal,
+    priceUSD,
+    description,
+    features,
+    profileViewsPerJob,
+    icon,
+    color,
+    popular,
+    hot,
+    isActive,
+    displayOrder,
+  } = req.body;
+
+  // Check if package type already exists
+  if (type) {
+    const existingPackage = await Package.findOne({ type });
+    if (existingPackage) {
+      return next(new AppError(`Package with type "${type}" already exists`, 400));
+    }
+  }
+
+  const newPackage = await Package.create({
+    name,
+    type,
+    pointsTotal,
+    priceUSD,
+    description,
+    features: features || [],
+    profileViewsPerJob,
+    icon: icon || 'Package',
+    color: color || 'primary',
+    popular: popular || false,
+    hot: hot || false,
+    isActive: isActive !== undefined ? isActive : true,
+    displayOrder: displayOrder || 0,
+  });
+
+  res.status(201).json({
+    status: 'success',
+    data: {
+      package: newPackage,
+    },
+  });
+});
+
+// Update package
+exports.updatePackage = catchAsync(async (req, res, next) => {
+  const package = await Package.findById(req.params.id);
+
+  if (!package) {
+    return next(new AppError('Package not found', 404));
+  }
+
+  const {
+    name,
+    type,
+    pointsTotal,
+    priceUSD,
+    description,
+    features,
+    profileViewsPerJob,
+    icon,
+    color,
+    popular,
+    hot,
+    isActive,
+    displayOrder,
+  } = req.body;
+
+  // Check if type is being changed and if new type already exists
+  if (type && type !== package.type) {
+    const existingPackage = await Package.findOne({ type });
+    if (existingPackage) {
+      return next(new AppError(`Package with type "${type}" already exists`, 400));
+    }
+  }
+
+  // Update fields
+  if (name !== undefined) package.name = name;
+  if (type !== undefined) package.type = type;
+  if (pointsTotal !== undefined) package.pointsTotal = pointsTotal;
+  if (priceUSD !== undefined) package.priceUSD = priceUSD;
+  if (description !== undefined) package.description = description;
+  if (features !== undefined) package.features = features;
+  if (profileViewsPerJob !== undefined) package.profileViewsPerJob = profileViewsPerJob;
+  if (icon !== undefined) package.icon = icon;
+  if (color !== undefined) package.color = color;
+  if (popular !== undefined) package.popular = popular;
+  if (hot !== undefined) package.hot = hot;
+  if (isActive !== undefined) package.isActive = isActive;
+  if (displayOrder !== undefined) package.displayOrder = displayOrder;
+
+  await package.save();
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      package,
+    },
+  });
+});
+
+// Delete package
+exports.deletePackage = catchAsync(async (req, res, next) => {
+  const package = await Package.findById(req.params.id);
+
+  if (!package) {
+    return next(new AppError('Package not found', 404));
+  }
+
+  await Package.findByIdAndDelete(req.params.id);
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Package deleted successfully',
+    data: null,
   });
 });

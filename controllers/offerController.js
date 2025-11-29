@@ -23,42 +23,55 @@ exports.createOffer = catchAsync(async (req, res, next) => {
 // @route   GET /api/v1/offers
 // @access  Public (students/clients see active offers, admin sees all)
 exports.getAllOffers = catchAsync(async (req, res, next) => {
+
   const {
-    targetAudience,
     offerType,
     isActive,
     featured,
     page = 1,
-    limit = 20,
+    limit = 20, // Default limit (will be increased for admin in the code below)
     sort = '-featured -createdAt',
   } = req.query;
+  
+  // Get targetAudience directly from query to handle undefined properly
+  const targetAudienceParam = req.query.targetAudience;
 
   // Build query
   const query = {};
+
 
   // Non-admin users only see active, valid offers
   if (req.user?.role !== 'admin') {
     query.isActive = true;
     query.startDate = { $lte: new Date() };
     query.endDate = { $gte: new Date() };
-  } else if (isActive !== undefined) {
-    query.isActive = isActive === 'true';
+  } else if (isActive !== undefined && isActive !== '') {
+    // For admin, only filter by isActive if explicitly provided
+    query.isActive = isActive === 'true' || isActive === true;
   }
-
+  // If admin and isActive is not provided, show all offers (both active and inactive)
+  
   // Filter by target audience
-  if (targetAudience) {
+  // targetAudienceParam could be undefined, empty string, or a value
+  console.log('targetAudienceParam', targetAudienceParam);
+  if (targetAudienceParam && targetAudienceParam.trim() !== '') {
+    // If targetAudience is provided and not empty
     if (req.user?.role === 'student') {
       query.targetAudience = { $in: ['student', 'both'] };
     } else if (req.user?.role === 'client') {
       query.targetAudience = { $in: ['client', 'both'] };
     } else {
-      query.targetAudience = targetAudience;
+      // For admin, use the provided targetAudience filter
+      query.targetAudience = targetAudienceParam;
     }
   } else if (req.user?.role === 'student') {
+    // If no filter and user is student, show only student/both offers
     query.targetAudience = { $in: ['student', 'both'] };
   } else if (req.user?.role === 'client') {
+    // If no filter and user is client, show only client/both offers
     query.targetAudience = { $in: ['client', 'both'] };
   }
+  // If admin and no targetAudience filter, show all (don't add targetAudience to query)
 
   if (offerType) {
     query.offerType = offerType;
@@ -69,12 +82,14 @@ exports.getAllOffers = catchAsync(async (req, res, next) => {
   }
 
   // Pagination
-  const skip = (page - 1) * limit;
+  // For admin, use a higher limit to show all offers
+  const limitNum = req.user?.role === 'admin' ? Math.max(parseInt(limit) || 1000, 1000) : parseInt(limit) || 20;
+  const skip = (page - 1) * limitNum;
 
   const offers = await Offer.find(query)
     .sort(sort)
     .skip(skip)
-    .limit(parseInt(limit))
+    .limit(limitNum)
     .populate('createdBy', 'name email');
 
   const total = await Offer.countDocuments(query);
@@ -155,6 +170,11 @@ exports.getOfferByCoupon = catchAsync(async (req, res, next) => {
 
   if (!offer) {
     return next(new AppError('Invalid or expired coupon code', 404));
+  }
+
+  // Check target audience matches user type
+  if (offer.targetAudience !== 'both' && offer.targetAudience !== req.user.role) {
+    return next(new AppError('This coupon code is not available for your account type', 403));
   }
 
   // Check if user has already used this offer
@@ -272,14 +292,34 @@ exports.updateOffer = catchAsync(async (req, res, next) => {
   delete req.body.currentUsageCount;
   delete req.body.usedBy;
 
-  const offer = await Offer.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
-  });
+  // Find the offer first to ensure it exists
+  const offer = await Offer.findById(req.params.id);
 
   if (!offer) {
     return next(new AppError('No offer found with that ID', 404));
   }
+
+  // Update the offer fields
+  Object.keys(req.body).forEach(key => {
+    if (req.body[key] !== undefined) {
+      // Don't update couponCode if it's being set to empty string (preserve existing)
+      if (key === 'couponCode' && req.body[key] === '') {
+        return; // Skip updating couponCode if empty string
+      }
+      offer[key] = req.body[key];
+    }
+  });
+
+  // Validate the document (this ensures the endDate > startDate validator works correctly)
+  // The validator needs access to both startDate and endDate in the same document context
+  try {
+    await offer.validate();
+  } catch (validationError) {
+    return next(validationError);
+  }
+
+  // Save the updated offer
+  await offer.save();
 
   res.status(200).json({
     status: 'success',

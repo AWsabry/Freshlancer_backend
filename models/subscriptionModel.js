@@ -100,39 +100,6 @@ const subscriptionSchema = new mongoose.Schema({
     type: String,
     maxlength: [500, 'Cancellation reason must be less than 500 characters'],
   },
-  // Premium features
-  features: {
-    increasedApplicationLimit: {
-      type: Boolean,
-      default: function () {
-        return this.plan === 'premium'; // Premium gets 100 apps/month vs 10 for free
-      },
-    },
-    profileBoost: {
-      type: Boolean,
-      default: function () {
-        return this.plan === 'premium';
-      },
-    },
-    analytics: {
-      type: Boolean,
-      default: function () {
-        return this.plan === 'premium';
-      },
-    },
-    prioritySupport: {
-      type: Boolean,
-      default: function () {
-        return this.plan === 'premium';
-      },
-    },
-    verifiedBadge: {
-      type: Boolean,
-      default: function () {
-        return this.plan === 'premium';
-      },
-    },
-  },
   createdAt: {
     type: Date,
     default: Date.now,

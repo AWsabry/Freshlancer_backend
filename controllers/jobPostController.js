@@ -13,6 +13,11 @@ exports.createJobPost = catchAsync(async (req, res, next) => {
   // Add the client ID to the job post data
   req.body.client = req.user.id;
 
+  // Remove deadline if it's empty or not provided
+  if (!req.body.deadline || req.body.deadline === '' || req.body.deadline === null) {
+    delete req.body.deadline;
+  }
+
   const jobPost = await JobPost.create(req.body);
 
   res.status(201).json({
@@ -48,8 +53,14 @@ exports.getAllJobPosts = catchAsync(async (req, res, next) => {
 
   // Sorting
   if (req.query.sort) {
-    const sortBy = req.query.sort.split(',').join(' ');
-    query = query.sort(sortBy);
+    // Handle special sort options
+    if (req.query.sort === 'budget-desc') {
+      // Sort by highest budget (budget.max descending)
+      query = query.sort('-budget.max');
+    } else {
+      const sortBy = req.query.sort.split(',').join(' ');
+      query = query.sort(sortBy);
+    }
   } else {
     query = query.sort('-createdAt');
   }
@@ -78,17 +89,50 @@ exports.getAllJobPosts = catchAsync(async (req, res, next) => {
   let jobPosts = await query;
   const total = await JobPost.countDocuments(queryObject);
 
-  // For students, check which jobs they have applied to
+  // For students, check which jobs they have applied to and subscription status
   if (req.user.role === 'student') {
     const User = require('../models/userModel');
+    const Subscription = require('../models/subscriptionModel');
+    
     const student = await User.findById(req.user._id).select('studentProfile.appliedJobs');
-
     const appliedJobIds = student?.studentProfile?.appliedJobs?.map((job) => job.jobId.toString()) || [];
 
-    // Add hasApplied field to each job
+    // Check if student has premium subscription
+    const subscription = await Subscription.findOne({
+      student: req.user._id,
+      status: 'active',
+    });
+    const isPremium = subscription?.plan === 'premium';
+
+    // Add hasApplied field and handle client data based on subscription
     jobPosts = jobPosts.map((job) => {
       const jobObj = job.toObject();
       jobObj.hasApplied = appliedJobIds.includes(job._id.toString());
+      
+      // Hide client data and budget for free plan users
+      if (!isPremium) {
+        // Hide client data
+        if (jobObj.client && (jobObj.client._id || jobObj.client.name || jobObj.client.email || jobObj.client.photo)) {
+          // Client exists but user is on free plan - hide client data
+          jobObj.client = {
+            message: 'Premium members only'
+          };
+        } else {
+          // Client doesn't exist or is empty - show premium message
+          jobObj.client = {
+            message: 'Premium members only'
+          };
+        }
+        
+        // Hide budget data
+        if (jobObj.budget) {
+          jobObj.budget = {
+            message: 'Premium members only'
+          };
+        }
+      }
+      // Premium users see all client data and budget (no changes needed)
+      
       return jobObj;
     });
   }
@@ -110,6 +154,11 @@ exports.getAllJobPosts = catchAsync(async (req, res, next) => {
 
 // Get a single job post
 exports.getJobPost = catchAsync(async (req, res, next) => {
+  // Validate the ID format
+  if (!req.params.id || req.params.id.length !== 24) {
+    return next(new AppError('Invalid job post ID format', 400));
+  }
+
   const jobPost = await JobPost.findById(req.params.id).populate({
     path: 'client',
     select: 'name email photo clientProfile',
@@ -122,15 +171,79 @@ exports.getJobPost = catchAsync(async (req, res, next) => {
   // Students can view any open job post
   // Clients can only view their own job posts
   const userId = req.user._id || req.user.id;
-  if (
-    req.user.role === 'client' &&
-    jobPost.client._id.toString() !== userId.toString()
-  ) {
-    return next(new AppError('You can only view your own job posts', 403));
+  
+  // Check client ownership - handle case where client might not be populated or doesn't exist
+  if (req.user.role === 'client') {
+    try {
+      // Handle different cases: populated client object, client ID string, or null
+      let clientId = null;
+      
+      if (jobPost.client) {
+        if (jobPost.client._id) {
+          // Client is populated as an object
+          clientId = jobPost.client._id.toString();
+        } else if (typeof jobPost.client === 'string') {
+          // Client is just an ID string
+          clientId = jobPost.client;
+        } else if (jobPost.client.toString) {
+          // Try to convert to string
+          clientId = jobPost.client.toString();
+        }
+      }
+      
+      // Only check ownership if we have a client ID
+      if (clientId && clientId !== userId.toString()) {
+        return next(new AppError('You can only view your own job posts', 403));
+      }
+    } catch (err) {
+      // If there's any error accessing client, log it but don't block the request
+      console.error('Error checking client ownership:', err);
+    }
   }
 
   if (req.user.role === 'student' && jobPost.status !== 'open') {
     return next(new AppError('This job post is no longer available', 404));
+  }
+
+  // For students, check subscription and hide client data and budget for free users
+  if (req.user.role === 'student') {
+    // Fetch user with studentProfile to check subscriptionTier
+    const User = require('../models/userModel');
+    const student = await User.findById(req.user._id).select('studentProfile.subscriptionTier');
+    
+    // Check subscription tier from user profile (primary source)
+    const subscriptionTier = student?.studentProfile?.subscriptionTier || 'free';
+    let isPremium = subscriptionTier === 'premium';
+    
+    // Also check Subscription model as fallback
+    if (!isPremium) {
+      const Subscription = require('../models/subscriptionModel');
+      const subscription = await Subscription.findOne({
+        student: req.user._id,
+        status: 'active',
+      });
+      isPremium = subscription?.plan === 'premium' || false;
+    }
+
+    const jobObj = jobPost.toObject();
+    
+    // Hide client data and budget for free plan users
+    if (!isPremium) {
+      // Hide client data - remove all client information
+      jobObj.client = { message: 'Premium members only' };
+      
+      // Hide budget data - remove all budget information
+      jobObj.budget = {
+        message: 'Premium members only'
+      };
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        jobPost: jobObj,
+      },
+    });
   }
 
   res.status(200).json({
@@ -157,6 +270,11 @@ exports.updateJobPost = catchAsync(async (req, res, next) => {
   // Prevent updating certain fields
   const restrictedFields = ['client', 'applicationsCount', 'createdAt'];
   restrictedFields.forEach((field) => delete req.body[field]);
+
+  // Remove deadline if it's empty or not provided
+  if (!req.body.deadline || req.body.deadline === '' || req.body.deadline === null) {
+    delete req.body.deadline;
+  }
 
   const updatedJobPost = await JobPost.findByIdAndUpdate(
     req.params.id,
@@ -386,9 +504,15 @@ exports.searchJobPosts = catchAsync(async (req, res, next) => {
   const limit = req.query.limit * 1 || 10;
   const skip = (page - 1) * limit;
 
+  // Determine sort order
+  let sortStage = { createdAt: -1 }; // Default sort
+  if (req.query.sort === 'budget-desc') {
+    sortStage = { 'budget.max': -1 }; // Sort by highest budget
+  }
+
   const jobPosts = await JobPost.aggregate([
     { $match: matchStage },
-    { $sort: { createdAt: -1 } },
+    { $sort: sortStage },
     { $skip: skip },
     { $limit: limit },
     {
@@ -400,7 +524,7 @@ exports.searchJobPosts = catchAsync(async (req, res, next) => {
         pipeline: [{ $project: { name: 1, email: 1, photo: 1, role: 1 } }],
       },
     },
-    { $unwind: '$client' },
+    { $unwind: { path: '$client', preserveNullAndEmptyArrays: true } },
   ]);
 
   const total = await JobPost.aggregate([
@@ -409,6 +533,35 @@ exports.searchJobPosts = catchAsync(async (req, res, next) => {
   ]);
 
   const totalCount = total.length > 0 ? total[0].total : 0;
+
+  // For students, check subscription and hide client data and budget for free users
+  if (req.user.role === 'student') {
+    const Subscription = require('../models/subscriptionModel');
+    const subscription = await Subscription.findOne({
+      student: req.user._id,
+      status: 'active',
+    });
+    const isPremium = subscription?.plan === 'premium';
+
+    // Hide client data and budget for free plan users
+    if (!isPremium) {
+      jobPosts.forEach((job) => {
+        // Hide client data
+        if (job.client && (job.client._id || job.client.name || job.client.email || job.client.photo)) {
+          job.client = { message: 'Premium members only' };
+        } else {
+          job.client = { message: 'Premium members only' };
+        }
+        
+        // Hide budget data
+        if (job.budget) {
+          job.budget = {
+            message: 'Premium members only'
+          };
+        }
+      });
+    }
+  }
 
   res.status(200).json({
     status: 'success',

@@ -87,33 +87,13 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     enum: ['basic', 'professional', 'enterprise', 'custom'],
   },
+  packageId: {
+    type: mongoose.Schema.ObjectId,
+    ref: 'Package',
+  },
   pointsProcessed: {
     type: Boolean,
     default: false,
-  },
-  // Fee breakdown
-  platformFee: {
-    amount: {
-      type: Number,
-      default: 0,
-    },
-    percentage: {
-      type: Number,
-      default: 0,
-    },
-  },
-  processingFee: {
-    amount: {
-      type: Number,
-      default: 0,
-    },
-    percentage: {
-      type: Number,
-      default: 0,
-    },
-  },
-  netAmount: {
-    type: Number, // Amount after fees
   },
   // Payer and Payee (for transfers)
   payer: {
@@ -213,16 +193,6 @@ transactionSchema.pre('save', async function (next) {
   next();
 });
 
-// Calculate net amount after fees
-transactionSchema.pre('save', function (next) {
-  if (this.isModified('amount') || this.isModified('platformFee') || this.isModified('processingFee')) {
-    const platformFeeAmount = this.platformFee.amount || 0;
-    const processingFeeAmount = this.processingFee.amount || 0;
-    this.netAmount = this.amount - platformFeeAmount - processingFeeAmount;
-  }
-  next();
-});
-
 // Update the updatedAt field
 transactionSchema.pre('save', function (next) {
   if (!this.isNew) {
@@ -291,13 +261,12 @@ transactionSchema.statics.calculateTotalRevenue = async function (startDate, end
       $group: {
         _id: null,
         totalRevenue: { $sum: '$amount' },
-        totalFees: { $sum: '$platformFee.amount' },
         count: { $sum: 1 },
       },
     },
   ]);
 
-  return result[0] || { totalRevenue: 0, totalFees: 0, count: 0 };
+  return result[0] || { totalRevenue: 0, count: 0 };
 };
 
 // Static method to get user transaction summary

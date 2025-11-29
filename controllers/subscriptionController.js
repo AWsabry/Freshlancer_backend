@@ -483,15 +483,35 @@ exports.getSubscriptionHistory = catchAsync(async (req, res, next) => {
 
 // Admin: Get all subscriptions
 exports.getAllSubscriptions = catchAsync(async (req, res, next) => {
-  const filter = {};
+  const filter = { status: 'active' }; // Only show active subscriptions
   if (req.query.plan) filter.plan = req.query.plan;
-  if (req.query.status) filter.status = req.query.status;
+  if (req.query.status && req.query.status !== 'all') {
+    filter.status = req.query.status;
+  }
 
-  const subscriptions = await Subscription.find(filter).sort('-createdAt');
+  // Pagination
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 20;
+  const skip = (page - 1) * limit;
+
+  const [subscriptions, totalCount] = await Promise.all([
+    Subscription.find(filter)
+      .populate({
+        path: 'student',
+        select: 'name email photo role',
+      })
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(limit),
+    Subscription.countDocuments(filter),
+  ]);
 
   res.status(200).json({
     status: 'success',
     results: subscriptions.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: page,
     data: {
       subscriptions,
     },

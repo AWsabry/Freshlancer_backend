@@ -10,6 +10,16 @@ router.use(authController.restrictTo('admin'));
 // Dashboard stats
 router.get('/stats', adminController.getDashboardStats);
 
+// Package management routes
+router.route('/packages')
+  .get(adminController.getAllPackages)
+  .post(adminController.createPackage);
+
+router.route('/packages/:id')
+  .get(adminController.getPackageById)
+  .patch(adminController.updatePackage)
+  .delete(adminController.deletePackage);
+
 // User management
 router.get('/users', adminController.getAllUsers);
 router.get('/users/:id', adminController.getUserById);

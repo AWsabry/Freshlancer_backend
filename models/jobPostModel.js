@@ -4,10 +4,10 @@ const slugify = require('slugify');
 const jobPostSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: [true, 'Job post must have a title'],
+    required: [true, 'Please enter a job title'],
     trim: true,
-    maxlength: [100, 'Job title must have less or equal to 100 characters'],
-    minlength: [5, 'Job title must have more or equal to 5 characters'],
+    maxlength: [100, 'Job title must be 100 characters or less'],
+    minlength: [5, 'Job title must be at least 5 characters'],
   },
   slug: {
     type: String,
@@ -15,24 +15,24 @@ const jobPostSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    required: [true, 'Job post must have a description'],
+    required: [true, 'Please describe the job and what you need'],
     trim: true,
     maxlength: [
       50000,
-      'Job description must have less or equal to 50000 characters',
+      'Job description must be 50,000 characters or less',
     ],
-    minlength: [20, 'Job description must have more or equal to 20 characters'],
+    minlength: [20, 'Job description must be at least 20 characters'],
   },
   budget: {
     min: {
       type: Number,
-      required: [true, 'Job post must have a minimum budget'],
-      min: [1, 'Minimum budget must be at least $1'],
+      required: [true, 'Please enter a minimum budget'],
+      min: [1, 'Minimum budget must be at least 1'],
     },
     max: {
       type: Number,
-      required: [true, 'Job post must have a maximum budget'],
-      min: [1, 'Maximum budget must be at least $1'],
+      required: [true, 'Please enter a maximum budget'],
+      min: [1, 'Maximum budget must be at least 1'],
     },
     currency: {
       type: String,
@@ -51,27 +51,32 @@ const jobPostSchema = new mongoose.Schema({
   },
   deadline: {
     type: Date,
-    required: [true, 'Job post must have a deadline'],
+    required: false,
     validate: {
       validator: function (val) {
-        return val > Date.now();
+        // Only validate if deadline is provided and is a valid date
+        if (!val || val === '' || val === null || val === undefined) return true;
+        // Check if it's a valid date
+        const date = new Date(val);
+        if (isNaN(date.getTime())) return true; // Invalid date, let it pass (will be handled elsewhere)
+        return date > Date.now();
       },
-      message: 'Deadline must be in the future',
+      message: 'If you set a deadline, it must be in the future',
     },
   },
   skillsRequired: {
     type: [String],
-    required: [true, 'Job post must specify required skills'],
+    required: [true, 'Please add at least one required skill for this job'],
     validate: {
       validator: function (val) {
         return val.length > 0 && val.length <= 10;
       },
-      message: 'Job post must have between 1 and 10 skills',
+      message: 'Please add between 1 and 10 skills',
     },
   },
   category: {
     type: String,
-    required: [true, 'Job post must have a category'],
+    required: [true, 'Please select a job category'],
     enum: {
       values: [
         'Web Development',
@@ -87,20 +92,20 @@ const jobPostSchema = new mongoose.Schema({
         'Research',
         'Other',
       ],
-      message: 'Invalid category selected',
+      message: 'Please select a valid job category',
     },
   },
   experienceLevel: {
     type: String,
-    required: [true, 'Job post must specify experience level'],
+    required: [true, 'Please select the required experience level'],
     enum: {
       values: ['Beginner', 'Intermediate', 'Advanced', 'Expert'],
-      message: 'Experience level must be Beginner, Intermediate, Advanced, or Expert',
+      message: 'Please select a valid experience level (Beginner, Intermediate, Advanced, or Expert)',
     },
   },
   projectDuration: {
     type: String,
-    required: [true, 'Job post must specify project duration'],
+    required: [true, 'Please select the expected project duration'],
     enum: {
       values: [
         'Less than 1 week',
@@ -109,7 +114,7 @@ const jobPostSchema = new mongoose.Schema({
         '1-3 months',
         'More than 3 months',
       ],
-      message: 'Invalid project duration',
+      message: 'Please select a valid project duration',
     },
   },
   status: {
@@ -152,25 +157,6 @@ const jobPostSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-  // Invite-only or open application mode
-  applicationType: {
-    type: String,
-    enum: {
-      values: ['open', 'invite-only'],
-      message: 'Application type must be open or invite-only',
-    },
-    default: 'open',
-  },
-  invitedStudents: [
-    {
-      type: mongoose.Schema.ObjectId,
-      ref: 'User',
-    },
-  ],
-  invitesSent: {
-    type: Number,
-    default: 0,
-  },
 });
 
 // Validate budget range
@@ -185,10 +171,76 @@ jobPostSchema.pre('save', function (next) {
   next();
 });
 
-// Create slug from title
-jobPostSchema.pre('save', function (next) {
-  if (this.isModified('title')) {
-    this.slug = slugify(this.title, { lower: true, strict: true });
+// Create slug from title with error handling
+jobPostSchema.pre('save', async function (next) {
+  if (this.isModified('title') && this.title) {
+    try {
+      // Clean the title first - remove extra whitespace and special characters
+      let cleanTitle = this.title.trim();
+      
+      // Remove emojis and special unicode characters that might cause issues
+      cleanTitle = cleanTitle.replace(/[\u{1F600}-\u{1F64F}]/gu, ''); // Emoticons
+      cleanTitle = cleanTitle.replace(/[\u{1F300}-\u{1F5FF}]/gu, ''); // Misc Symbols
+      cleanTitle = cleanTitle.replace(/[\u{1F680}-\u{1F6FF}]/gu, ''); // Transport
+      cleanTitle = cleanTitle.replace(/[\u{2600}-\u{26FF}]/gu, ''); // Misc symbols
+      cleanTitle = cleanTitle.replace(/[\u{2700}-\u{27BF}]/gu, ''); // Dingbats
+      
+      // Generate slug with more permissive options
+      let slug = slugify(cleanTitle, {
+        lower: true,
+        strict: false, // Changed from true to false to be more permissive
+        remove: /[*+~.()'"!:@]/g, // Remove problematic characters
+        replacement: '-',
+        locale: 'en', // Use English locale
+        trim: true
+      });
+      
+      // If slug is empty or too short after processing, create a fallback
+      if (!slug || slug.length < 3) {
+        // Create a fallback slug from the first few characters and timestamp
+        const timestamp = Date.now().toString().slice(-6);
+        const fallback = cleanTitle.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+        slug = `${fallback || 'job'}-${timestamp}`;
+      }
+      
+      // Ensure slug is not too long (max 100 characters for MongoDB index limits)
+      if (slug.length > 100) {
+        slug = slug.substring(0, 100);
+      }
+      
+      // Check for uniqueness and append number if needed
+      const JobPost = mongoose.model('JobPost');
+      let uniqueSlug = slug;
+      let counter = 1;
+      const maxAttempts = 100; // Prevent infinite loops
+      
+      // Always check uniqueness to ensure no conflicts
+      let existing = await JobPost.findOne({ slug: uniqueSlug, _id: { $ne: this._id } });
+      while (existing && counter < maxAttempts) {
+        uniqueSlug = `${slug}-${counter}`;
+        // Ensure unique slug doesn't exceed length limit
+        if (uniqueSlug.length > 100) {
+          uniqueSlug = `${slug.substring(0, 95)}-${counter}`;
+        }
+        existing = await JobPost.findOne({ slug: uniqueSlug, _id: { $ne: this._id } });
+        if (!existing) break;
+        counter++;
+      }
+      
+      // If we hit max attempts, use timestamp as fallback
+      if (counter >= maxAttempts) {
+        const timestamp = Date.now().toString().slice(-8);
+        uniqueSlug = `${slug.substring(0, 90)}-${timestamp}`;
+      }
+      
+      this.slug = uniqueSlug;
+    } catch (error) {
+      // Fallback: create slug from timestamp and random string if slugify fails
+      console.error('Error creating slug:', error);
+      const timestamp = Date.now().toString().slice(-8);
+      const randomStr = Math.random().toString(36).substring(2, 6);
+      this.slug = `job-${timestamp}-${randomStr}`;
+    }
   }
   next();
 });
@@ -201,14 +253,11 @@ jobPostSchema.pre('save', function (next) {
   next();
 });
 
-// Populate client and invited students information when querying
+// Populate client information when querying
 jobPostSchema.pre(/^find/, function (next) {
   this.populate({
     path: 'client',
     select: 'name email photo role',
-  }).populate({
-    path: 'invitedStudents',
-    select: 'name email photo studentProfile.skills rating',
   });
   next();
 });
@@ -220,6 +269,7 @@ jobPostSchema.index({ skillsRequired: 1 });
 jobPostSchema.index({ createdAt: -1 });
 jobPostSchema.index({ deadline: 1 });
 jobPostSchema.index({ 'budget.min': 1, 'budget.max': 1 });
+// Note: slug already has unique: true in schema, so unique index is created automatically
 
 const JobPost = mongoose.model('JobPost', jobPostSchema);
 
