@@ -1,37 +1,13 @@
 const User = require('../models/userModel');
 const Transaction = require('../models/transactionModel');
 const Notification = require('../models/notificationModel');
+const Package = require('../models/packageModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const paymobService = require('../utils/paymob');
 
 // Currency conversion rate (USD to EGP)
 const USD_TO_EGP_RATE = 49.5;
-
-// Points package configurations (in USD)
-const packageConfigs = {
-  basic: {
-    name: '500 Points',
-    pointsTotal: 500,
-    priceUSD: 9.99,
-    profileViewsPerJob: 50,
-    description: 'Perfect for small projects',
-  },
-  professional: {
-    name: '1000 Points',
-    pointsTotal: 1000,
-    priceUSD: 14.99,
-    profileViewsPerJob: 100,
-    description: 'Most popular choice',
-  },
-  enterprise: {
-    name: '2000 Points',
-    pointsTotal: 2000,
-    priceUSD: 21.99,
-    profileViewsPerJob: 200,
-    description: 'For large Access',
-  },
-};
 
 // Helper function to get price in the requested currency
 const getPriceForCurrency = (priceUSD, currency) => {
@@ -41,12 +17,35 @@ const getPriceForCurrency = (priceUSD, currency) => {
   return priceUSD;
 };
 
-// Get available packages (public)
+// Get available packages (public) - fetch from database
 exports.getAvailablePackages = catchAsync(async (req, res, next) => {
+  const packages = await Package.find({ isActive: true })
+    .sort({ displayOrder: 1, createdAt: -1 });
+
+  // Convert to object format for backward compatibility
+  const packagesObj = {};
+  packages.forEach(pkg => {
+    packagesObj[pkg.type] = {
+      _id: pkg._id,
+      name: pkg.name,
+      type: pkg.type,
+      pointsTotal: pkg.pointsTotal,
+      priceUSD: pkg.priceUSD,
+      profileViewsPerJob: pkg.profileViewsPerJob,
+      description: pkg.description,
+      features: pkg.features,
+      icon: pkg.icon,
+      color: pkg.color,
+      popular: pkg.popular,
+      hot: pkg.hot,
+    };
+  });
+
   res.status(200).json({
     status: 'success',
     data: {
-      packages: packageConfigs,
+      packages: packagesObj,
+      packagesArray: packages, // Also return as array for easier frontend consumption
     },
   });
 });
@@ -57,13 +56,32 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
     return next(new AppError('Only clients can purchase packages', 403));
   }
 
-  const { packageType, paymentMethod, currency = 'USD', amount } = req.body;
+  const { packageType, packageId, paymentMethod, currency = 'USD', amount } = req.body;
 
-  if (!packageConfigs[packageType]) {
-    return next(new AppError('Invalid package type', 400));
+  // Fetch package from database - prefer packageId if provided, otherwise use packageType
+  let packageDoc;
+  if (packageId) {
+    packageDoc = await Package.findById(packageId);
+  } else if (packageType) {
+    packageDoc = await Package.findOne({ type: packageType, isActive: true });
+  } else {
+    return next(new AppError('Package ID or type is required', 400));
   }
 
-  const config = packageConfigs[packageType];
+  if (!packageDoc) {
+    return next(new AppError('Package not found or inactive', 404));
+  }
+
+  // Use package document as config
+  const config = {
+    _id: packageDoc._id,
+    name: packageDoc.name,
+    type: packageDoc.type,
+    pointsTotal: packageDoc.pointsTotal,
+    priceUSD: packageDoc.priceUSD,
+    profileViewsPerJob: packageDoc.profileViewsPerJob,
+    description: packageDoc.description,
+  };
 
   // Use the amount sent from frontend (includes processing fees) or calculate it
   // Convert base price to the requested currency
@@ -82,7 +100,8 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
     paymentMethod: paymentMethod || 'credit_card',
     description: `${config.name} purchase - ${config.pointsTotal} points`,
     points: config.pointsTotal,
-    packageType: packageType,
+    packageType: config.type,
+    packageId: config._id,
     pointsProcessed: false,
   });
 

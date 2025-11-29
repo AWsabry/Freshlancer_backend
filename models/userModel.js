@@ -142,20 +142,34 @@ const userSchema = new mongoose.Schema({
       },
     ],
 
-    // Education information
-    education: [
-      {
-        institution: String,
-        degree: String,
-        fieldOfStudy: String,
-        graduationYear: Number,
-        gpa: Number,
-        isCurrentlyStudying: {
-          type: Boolean,
-          default: false,
+    // University and graduation year (from registration)
+    university: {
+      type: String,
+      trim: true,
+    },
+    universityLink: {
+      type: String,
+      trim: true,
+      validate: {
+        validator: function (val) {
+          if (!val || val === '') return true; // Optional field
+          return validator.isURL(val, {
+            protocols: ['http', 'https'],
+            require_protocol: true,
+          });
         },
+        message: 'Please provide a valid URL (must start with http:// or https://)',
       },
-    ],
+    },
+    major: {
+      type: String,
+      trim: true,
+    },
+    graduationYear: {
+      type: Number,
+      min: [1900, 'Graduation year must be valid'],
+      max: [2100, 'Graduation year must be valid'],
+    },
 
     // Experience and rates
     experienceLevel: {
@@ -182,7 +196,7 @@ const userSchema = new mongoose.Schema({
           // Europe
           'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'HRK', 'RUB', 'UAH'
         ],
-        default: 'USD',
+        // No default - will be set based on country of study during registration
       },
     },
 

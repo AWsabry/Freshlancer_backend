@@ -7,6 +7,7 @@ const sendEmail = require('../utils/email');
 
 // Apply for a job (only students)
 exports.applyForJob = catchAsync(async (req, res, next) => {
+
   // Ensure only students can apply for jobs
   if (req.user.role !== 'student') {
     return next(new AppError('Only students can apply for jobs', 403));
@@ -194,11 +195,13 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
 
 // Get all applications for a user
 exports.getMyApplications = catchAsync(async (req, res, next) => {
+  
   let query = {};
 
   const userId = req.user._id || req.user.id;
 
   if (req.user.role === 'student') {
+  
     // Students see their own applications
     query.student = userId;
   } else if (req.user.role === 'client') {
@@ -244,10 +247,54 @@ exports.getMyApplications = catchAsync(async (req, res, next) => {
 
   mongoQuery = mongoQuery.skip(skip).limit(limit);
 
+  // Populate jobPost with client info
+  mongoQuery = mongoQuery.populate({
+    path: 'jobPost',
+    select: 'title budget deadline status category description skillsRequired location client',
+    populate: {
+      path: 'client',
+      select: 'name email photo clientProfile',
+    },
+  });
+
   // Execute query
-  const applications = await mongoQuery;
-  console.log("HEHEH "+ applications);
+  let applications = await mongoQuery;
   const total = await JobApplication.countDocuments(query);
+
+  // For students, check subscription and hide client data for free users
+  if (req.user.role === 'student') {
+    const Subscription = require('../models/subscriptionModel');
+    const subscription = await Subscription.findOne({
+      student: req.user._id,
+      status: 'active',
+    });
+    const isPremium = subscription?.plan === 'premium';
+
+    // Hide client data and budget for free plan users
+    if (!isPremium) {
+      applications = applications.map((app) => {
+        const appObj = app.toObject();
+        if (appObj.jobPost) {
+          // Hide client data
+          if (appObj.jobPost.client) {
+            if (appObj.jobPost.client._id || appObj.jobPost.client.name || appObj.jobPost.client.email || appObj.jobPost.client.photo) {
+              appObj.jobPost.client = { message: 'Premium members only' };
+            } else {
+              appObj.jobPost.client = { message: 'Premium members only' };
+            }
+          }
+          
+          // Hide budget data
+          if (appObj.jobPost.budget) {
+            appObj.jobPost.budget = {
+              message: 'Premium members only'
+            };
+          }
+        }
+        return appObj;
+      });
+    }
+  }
 
   res.status(200).json({
     status: 'success',
@@ -266,7 +313,19 @@ exports.getMyApplications = catchAsync(async (req, res, next) => {
 
 // Get a single application
 exports.getApplication = catchAsync(async (req, res, next) => {
-  const application = await JobApplication.findById(req.params.id);
+  const application = await JobApplication.findById(req.params.id)
+    .populate({
+      path: 'jobPost',
+      select: 'title budget deadline status category description skillsRequired location client',
+      populate: {
+        path: 'client',
+        select: 'name email photo clientProfile',
+      },
+    })
+    .populate({
+      path: 'student',
+      select: '-password', // Exclude password
+    });
 
   if (!application) {
     return next(new AppError('Application not found', 404));
@@ -274,9 +333,16 @@ exports.getApplication = catchAsync(async (req, res, next) => {
 
   const userId = req.user._id || req.user.id;
 
-  // Check permissions
-  const isOwner = application.student._id.toString() === userId.toString();
-  const isJobOwner = application.jobPost.client._id.toString() === userId.toString();
+  // Check permissions - handle case where client might not be populated yet
+  const isOwner = application.student && application.student._id.toString() === userId.toString();
+  let isJobOwner = false;
+  
+  if (application.jobPost && application.jobPost.client) {
+    const clientId = application.jobPost.client._id 
+      ? application.jobPost.client._id.toString() 
+      : application.jobPost.client.toString();
+    isJobOwner = clientId === userId.toString();
+  }
 
   if (!isOwner && !isJobOwner) {
     return next(
@@ -295,6 +361,74 @@ exports.getApplication = catchAsync(async (req, res, next) => {
     });
     application.readByClient = true;
     application.readByClientAt = Date.now();
+  }
+
+  // For clients, hide student data if not unlocked
+  if (req.user.role === 'client') {
+    const appObj = application.toObject();
+    
+    // Check if student contact is unlocked
+    if (!appObj.contactUnlockedByClient) {
+      // Student is locked - hide all student data
+      appObj.student = {
+        message: 'Student is Locked'
+      };
+    } else {
+      // If unlocked, remove password and appliedJobs from student data
+      if (appObj.student) {
+        delete appObj.student.password;
+        if (appObj.student.studentProfile && appObj.student.studentProfile.appliedJobs) {
+          delete appObj.student.studentProfile.appliedJobs;
+        }
+      }
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        application: appObj,
+      },
+    });
+  }
+
+  // For students, check subscription and hide client data and budget for free users
+  if (req.user.role === 'student') {
+    const Subscription = require('../models/subscriptionModel');
+    const subscription = await Subscription.findOne({
+      student: req.user._id,
+      status: 'active',
+    });
+    const isPremium = subscription?.plan === 'premium';
+
+    const appObj = application.toObject();
+    
+    // Hide client data and budget for free plan users
+    if (!isPremium) {
+      if (appObj.jobPost) {
+        // Hide client data
+        if (appObj.jobPost.client) {
+          if (appObj.jobPost.client._id || appObj.jobPost.client.name || appObj.jobPost.client.email || appObj.jobPost.client.photo) {
+            appObj.jobPost.client = { message: 'Premium members only' };
+          } else {
+            appObj.jobPost.client = { message: 'Premium members only' };
+          }
+        }
+        
+        // Hide budget data
+        if (appObj.jobPost.budget) {
+          appObj.jobPost.budget = {
+            message: 'Premium members only'
+          };
+        }
+      }
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        application: appObj,
+      },
+    });
   }
 
   res.status(200).json({
@@ -767,15 +901,24 @@ exports.unlockStudentContact = catchAsync(async (req, res, next) => {
     },
     {
       path: 'student',
-      select: 'name email photo age nationality studentProfile',
+      select: '-password', // Exclude password
     },
   ]);
+
+  // Remove password and appliedJobs from student data
+  const appObj = application.toObject();
+  if (appObj.student) {
+    delete appObj.student.password;
+    if (appObj.student.studentProfile && appObj.student.studentProfile.appliedJobs) {
+      delete appObj.student.studentProfile.appliedJobs;
+    }
+  }
 
   res.status(200).json({
     status: 'success',
     message: `Student contact unlocked successfully. ${pointsCost} points deducted.`,
     data: {
-      application,
+      application: appObj,
       pointsRemaining: client.clientProfile.pointsRemaining,
     },
   });
@@ -816,12 +959,12 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     { $unwind: '$student' },
   ];
 
-  // Apply filters
+  // Apply filters (must be after $unwind so student data is available)
   const matchStage = {};
 
-  // Filter by experience level
+  // Filter by experience level (check student's experience level)
   if (req.query.experienceLevel) {
-    matchStage.relevantExperienceLevel = req.query.experienceLevel;
+    matchStage['student.studentProfile.experienceLevel'] = req.query.experienceLevel;
   }
 
   // Filter by status
@@ -839,10 +982,18 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     matchStage['student.studentProfile.subscriptionTier'] = req.query.subscriptionTier;
   }
 
-  // Add match stage if there are filters
+  // Add match stage if there are filters (before $project)
   if (Object.keys(matchStage).length > 0) {
     pipeline.push({ $match: matchStage });
   }
+
+  // Exclude password and appliedJobs from student data (after filtering)
+  pipeline.push({
+    $project: {
+      'student.password': 0,
+      'student.studentProfile.appliedJobs': 0,
+    },
+  });
 
   // Add sorting
   const sortBy = req.query.sortBy || 'createdAt';
@@ -863,7 +1014,28 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   pipeline.push({ $limit: limit });
 
   // Execute aggregation
-  const applications = await JobApplication.aggregate(pipeline);
+  let applications = await JobApplication.aggregate(pipeline);
+
+  // Hide student data for applications that are not unlocked, and exclude password/appliedJobs for unlocked ones
+  applications = applications.map((app) => {
+    // Check if student contact is unlocked
+    // contactUnlockedByClient defaults to false, so check explicitly
+    if (!app.contactUnlockedByClient || app.contactUnlockedByClient === false) {
+      // Student is locked - hide all student data
+      app.student = {
+        message: 'Student is Locked'
+      };
+    } else {
+      // If unlocked, remove password and appliedJobs from student data
+      if (app.student) {
+        delete app.student.password;
+        if (app.student.studentProfile && app.student.studentProfile.appliedJobs) {
+          delete app.student.studentProfile.appliedJobs;
+        }
+      }
+    }
+    return app;
+  });
 
   // Get unique nationalities for filter dropdown
   const uniqueNationalities = await JobApplication.aggregate([

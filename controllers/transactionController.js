@@ -50,17 +50,29 @@ exports.getTransactionSummary = catchAsync(async (req, res, next) => {
 
 // Admin: Get all transactions
 exports.getAllTransactions = catchAsync(async (req, res, next) => {
+  const User = require('../models/userModel');
   const filter = {};
 
   if (req.query.type) filter.type = req.query.type;
   if (req.query.status) filter.status = req.query.status;
   if (req.query.user) filter.user = req.query.user;
+  
+  // Filter by role if specified
+  if (req.query.role) {
+    const users = await User.find({ role: req.query.role }).select('_id');
+    const userIds = users.map(u => u._id);
+    filter.user = { $in: userIds };
+  }
 
   const page = parseInt(req.query.page, 10) || 1;
   const limit = parseInt(req.query.limit, 10) || 50;
   const skip = (page - 1) * limit;
 
   const transactions = await Transaction.find(filter)
+    .populate({
+      path: 'user',
+      select: 'name email role photo',
+    })
     .sort('-createdAt')
     .skip(skip)
     .limit(limit);

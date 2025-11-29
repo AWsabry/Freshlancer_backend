@@ -1,9 +1,11 @@
 const { promisify } = require('util');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const validator = require('validator');
 const User = require('../models/userModel');
 const AppError = require('../utils/AppError');
 const sendEmail = require('../utils/email');
+const { getCurrencyByCountry } = require('../utils/currencyRates');
 
 const catchAsync = require('../utils/catchAsync');
 
@@ -84,6 +86,37 @@ exports.signup = catchAsync(async (req, res, next) => {
     profileCompletionPercentage: 20, // Basic info filled = 20%
   };
 
+  // For students, phone and nationality are required
+  if (req.body.role === 'student') {
+    if (!req.body.phone) {
+      return next(new AppError('Phone number is required for student registration', 400));
+    }
+    if (!req.body.nationality) {
+      return next(new AppError('Nationality is required for student registration', 400));
+    }
+    userData.phone = req.body.phone;
+    userData.nationality = req.body.nationality;
+    
+    // Store country of study in location.country if provided
+    if (req.body.location && req.body.location.country) {
+      userData.location = {
+        country: req.body.location.country,
+      };
+    }
+  } else {
+    // For other roles, these are optional
+    if (req.body.phone) {
+      userData.phone = req.body.phone;
+    }
+    if (req.body.nationality) {
+      userData.nationality = req.body.nationality;
+    }
+    // For other roles, location is optional
+    if (req.body.location) {
+      userData.location = req.body.location;
+    }
+  }
+
   // Add optional fields only if provided
   if (req.body.age !== undefined && req.body.age !== null) {
     userData.age = req.body.age;
@@ -91,15 +124,11 @@ exports.signup = catchAsync(async (req, res, next) => {
   if (req.body.gender) {
     userData.gender = req.body.gender;
   }
-  if (req.body.nationality) {
-    userData.nationality = req.body.nationality;
-  }
 
   // Initialize role-specific profile objects
   if (req.body.role === 'student') {
     userData.studentProfile = {
       skills: [],
-      education: [],
       portfolio: [],
       socialLinks: {},
       languages: [],
@@ -107,16 +136,43 @@ exports.signup = catchAsync(async (req, res, next) => {
       availability: 'Available',
     };
 
+    // Set currency based on country of study if provided
+    if (userData.location && userData.location.country) {
+      const currency = getCurrencyByCountry(userData.location.country);
+      userData.studentProfile.hourlyRate = {
+        currency: currency,
+      };
+    }
+
     // Add student profile data from registration form if provided
     if (req.body.studentProfile) {
-      if (req.body.studentProfile.university) {
-        userData.studentProfile.university = req.body.studentProfile.university;
+      if (req.body.studentProfile.university !== undefined && req.body.studentProfile.university !== null && req.body.studentProfile.university !== '') {
+        userData.studentProfile.university = req.body.studentProfile.university.trim();
       }
-      if (req.body.studentProfile.major) {
-        userData.studentProfile.major = req.body.studentProfile.major;
+      if (req.body.studentProfile.major !== undefined && req.body.studentProfile.major !== null && req.body.studentProfile.major !== '') {
+        userData.studentProfile.major = req.body.studentProfile.major.trim();
       }
-      if (req.body.studentProfile.graduationYear) {
-        userData.studentProfile.graduationYear = req.body.studentProfile.graduationYear;
+      if (req.body.studentProfile.graduationYear !== undefined && req.body.studentProfile.graduationYear !== null && req.body.studentProfile.graduationYear !== '') {
+        const gradYear = parseInt(req.body.studentProfile.graduationYear);
+        if (!isNaN(gradYear) && gradYear > 1900 && gradYear < 2100) {
+          userData.studentProfile.graduationYear = gradYear;
+        }
+      }
+      // If hourlyRate is provided in request, merge it (but keep currency from country if set)
+      if (req.body.studentProfile.hourlyRate) {
+        if (!userData.studentProfile.hourlyRate) {
+          userData.studentProfile.hourlyRate = {};
+        }
+        if (req.body.studentProfile.hourlyRate.min !== undefined) {
+          userData.studentProfile.hourlyRate.min = req.body.studentProfile.hourlyRate.min;
+        }
+        if (req.body.studentProfile.hourlyRate.max !== undefined) {
+          userData.studentProfile.hourlyRate.max = req.body.studentProfile.hourlyRate.max;
+        }
+        // Only set currency from request if country-based currency wasn't set
+        if (req.body.studentProfile.hourlyRate.currency && !userData.studentProfile.hourlyRate.currency) {
+          userData.studentProfile.hourlyRate.currency = req.body.studentProfile.hourlyRate.currency;
+        }
       }
     }
   } else if (req.body.role === 'client') {
@@ -154,8 +210,13 @@ exports.login = catchAsync(async (req, res, next) => {
     return next(new AppError('Please provide both email and password', 400));
   }
 
-  // Find user and include password field (which is normally excluded)
-  const user = await User.findOne({ email }).select('+password');
+  // Ensure email is a valid email format (not a name)
+  if (!validator.isEmail(email)) {
+    return next(new AppError('Please provide a valid email address. Login must be done using your email, not your name.', 400));
+  }
+
+  // Find user by email only (email is unique, name is not)
+  const user = await User.findOne({ email: email.toLowerCase().trim() }).select('+password');
   
   // Check if user exists
   if (!user) {
@@ -186,11 +247,27 @@ exports.login = catchAsync(async (req, res, next) => {
 });
 
 exports.logout = (req, res) => {
+  // Clear JWT cookie by setting it to expired
   res.cookie('jwt', 'loggedOut', {
-    expires: new Date(Date.now() + 10 * 1000),
+    expires: new Date(Date.now() - 1000), // Set to past date to immediately expire
     httpOnly: true,
+    secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+    sameSite: 'lax',
+    path: '/',
   });
-  res.status(200).json({ status: 'success' });
+  
+  // Also try to clear cookie with different paths/domains to ensure complete removal
+  res.clearCookie('jwt', {
+    httpOnly: true,
+    secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+    sameSite: 'lax',
+    path: '/',
+  });
+  
+  res.status(200).json({ 
+    status: 'success',
+    message: 'Logged out successfully. All sessions cleared.'
+  });
 };
 
 exports.protect = catchAsync(async (req, res, next) => {
@@ -501,7 +578,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   }
 
   // 2) Fields that are not allowed to be updated
-  const restrictedFields = ['email', 'role', 'emailVerified', 'active', 'suspended'];
+  const restrictedFields = ['email', 'role', 'emailVerified', 'active', 'suspended', 'nationality'];
   restrictedFields.forEach((field) => {
     if (req.body[field] !== undefined) {
       delete req.body[field];
@@ -511,31 +588,33 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   // 3) Build update object for allowed fields
   const updateData = {};
 
-  // Personal information fields
-  const allowedPersonalFields = ['name', 'photo', 'phone', 'age', 'gender', 'nationality'];
+  // Personal information fields (nationality is restricted and cannot be changed)
+  const allowedPersonalFields = ['name', 'photo', 'phone', 'age', 'gender'];
   allowedPersonalFields.forEach((field) => {
     if (req.body[field] !== undefined) {
       updateData[field] = req.body[field];
     }
   });
 
-  // Location fields
+  // Location fields - country cannot be changed, only city and timezone
   if (req.body.location) {
     updateData.location = {};
-    if (req.body.location.country) updateData.location.country = req.body.location.country;
-    if (req.body.location.city) updateData.location.city = req.body.location.city;
-    if (req.body.location.timezone) updateData.location.timezone = req.body.location.timezone;
+    // Country is restricted and cannot be changed after registration
+    // Only allow city and timezone to be updated
+    if (req.body.location.city !== undefined) updateData.location.city = req.body.location.city;
+    if (req.body.location.timezone !== undefined) updateData.location.timezone = req.body.location.timezone;
   }
 
   // Student profile fields (only for students)
   if (req.user.role === 'student' && req.body.studentProfile) {
     const sp = req.body.studentProfile;
 
+    // University
+    if (sp.university !== undefined) updateData['studentProfile.university'] = sp.university;
+    if (sp.universityLink !== undefined) updateData['studentProfile.universityLink'] = sp.universityLink;
+
     // Skills
     if (sp.skills !== undefined) updateData['studentProfile.skills'] = sp.skills;
-
-    // Education
-    if (sp.education !== undefined) updateData['studentProfile.education'] = sp.education;
 
     // Experience
     if (sp.experienceLevel !== undefined) updateData['studentProfile.experienceLevel'] = sp.experienceLevel;

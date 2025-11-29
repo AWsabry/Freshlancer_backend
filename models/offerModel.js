@@ -83,7 +83,15 @@ const offerSchema = new mongoose.Schema({
     required: [true, 'Offer must have an end date'],
     validate: {
       validator: function(value) {
-        return value > this.startDate;
+        // Get the startDate - could be from this.startDate (new) or this.get('startDate') (existing)
+        const startDate = this.startDate || this.get('startDate');
+        if (!startDate || !value) return true; // Let required validator handle missing values
+        // Compare dates by setting time to midnight UTC to avoid timezone issues
+        const start = new Date(startDate);
+        start.setUTCHours(0, 0, 0, 0);
+        const end = new Date(value);
+        end.setUTCHours(0, 0, 0, 0);
+        return end > start;
       },
       message: 'End date must be after start date',
     },
