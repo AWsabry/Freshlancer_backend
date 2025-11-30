@@ -174,6 +174,7 @@ const userSchema = new mongoose.Schema({
     // Experience and rates
     experienceLevel: {
       type: String,
+      required: [true, 'Experience level is required'],
       enum: ['Beginner', 'Intermediate', 'Advanced', 'Expert'],
     },
     yearsOfExperience: {

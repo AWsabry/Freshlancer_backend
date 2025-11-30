@@ -1,6 +1,20 @@
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const AppError = require('../utils/AppError');
+
+// Ensure upload directories exist
+const ensureUploadDir = (dirPath) => {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+};
+
+// Create upload directories if they don't exist
+ensureUploadDir('uploads/resumes');
+ensureUploadDir('uploads/verification-documents');
+ensureUploadDir('uploads/additional-documents');
+ensureUploadDir('uploads/startup-logos');
 
 // Configure multer storage for resumes
 const resumeStorage = multer.diskStorage({
