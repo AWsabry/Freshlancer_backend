@@ -2,19 +2,38 @@ const nodemailer = require('nodemailer');
 
 const sendEmail = async (options) => {
   try {
-    // Create a test account with Ethereal Email for development
-    let testAccount = await nodemailer.createTestAccount();
+    let transporter;
 
-    // Create transporter using the test account
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: testAccount.user, // generated ethereal user
-        pass: testAccount.pass, // generated ethereal password
-      },
-    });
+    // Check if real SMTP credentials are configured
+    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+      // Use real SMTP service (Gmail, Outlook, SendGrid, etc.)
+      transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT) || 587,
+        secure: process.env.SMTP_SECURE === 'true' || false, // true for 465, false for other ports
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      });
+      console.log('📧 Using configured SMTP service:', process.env.SMTP_HOST);
+    } else {
+      // Fallback to Ethereal Email for development/testing
+      console.log('⚠️  No SMTP configuration found. Using Ethereal Email (testing service).');
+      console.log('⚠️  Emails will NOT be sent to real addresses. Check server console for preview URLs.');
+      console.log('⚠️  To send real emails, configure SMTP_HOST, SMTP_USER, and SMTP_PASS in config.env');
+      
+      let testAccount = await nodemailer.createTestAccount();
+      transporter = nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+    }
 
     // Generate dynamic content based on email type and user role
     let emailContent = '';
@@ -319,8 +338,19 @@ const sendEmail = async (options) => {
     // Send email
     const info = await transporter.sendMail(mailOptions);
 
-    console.log('Email sent successfully:', info.messageId);
-    console.log('Preview URL (Ethereal):', nodemailer.getTestMessageUrl(info));
+    if (process.env.SMTP_HOST) {
+      // Real SMTP - email was actually sent
+      console.log('✅ Email sent successfully via SMTP:', info.messageId);
+      console.log('📧 To:', options.email);
+    } else {
+      // Ethereal Email - only preview available
+      console.log('📧 Email preview created (Ethereal Email - NOT sent to real address):', info.messageId);
+      const previewUrl = nodemailer.getTestMessageUrl(info);
+      if (previewUrl) {
+        console.log('🔗 Preview URL:', previewUrl);
+      }
+      console.log('⚠️  IMPORTANT: This is a test email. Configure SMTP settings to send real emails.');
+    }
 
     return info;
   } catch (error) {

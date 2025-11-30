@@ -187,7 +187,16 @@ exports.getAllApplications = catchAsync(async (req, res, next) => {
 // Get dashboard statistics
 exports.getDashboardStats = catchAsync(async (req, res, next) => {
   const Subscription = require('../models/subscriptionModel');
+  const Transaction = require('../models/transactionModel');
   
+  // Get current year start and end dates
+  const currentYear = new Date().getFullYear();
+  const yearStart = new Date(currentYear, 0, 1);
+  const yearEnd = new Date(currentYear, 11, 31, 23, 59, 59, 999);
+
+  // Get client user IDs first
+  const clientUserIds = await User.find({ role: 'client' }).distinct('_id');
+
   const [
     totalUsers,
     totalStudents,
@@ -197,9 +206,10 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
     activeJobs,
     pendingApplications,
     recentUsers,
-    totalSubscriptions,
-    premiumSubscriptions,
+    currentPremiumStudents,
+    totalClientTransactions,
     freeSubscriptions,
+    totalActiveSubscriptions,
   ] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ role: 'student' }),
@@ -212,10 +222,75 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
       .select('name email role createdAt')
       .sort('-createdAt')
       .limit(10),
-    Subscription.countDocuments({ status: 'active' }),
+    // Count students with active premium subscriptions
     Subscription.countDocuments({ status: 'active', plan: 'premium' }),
+    // Count transactions by clients
+    Transaction.countDocuments({
+      user: { $in: clientUserIds }
+    }),
     Subscription.countDocuments({ status: 'active', plan: 'free' }),
+    // Total active subscriptions (all plans)
+    Subscription.countDocuments({ status: 'active' }),
   ]);
+  
+  // Get student user IDs for student transactions
+  const studentUserIds = await User.find({ role: 'student' }).distinct('_id');
+
+  // Client transactions yearly data
+  const clientYearlyData = await Transaction.aggregate([
+    {
+      $match: {
+        user: { $in: clientUserIds },
+        createdAt: { $gte: yearStart, $lte: yearEnd }
+      }
+    },
+    {
+      $group: {
+        _id: { $month: '$createdAt' },
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $sort: { _id: 1 }
+    }
+  ]);
+
+  // Student transactions yearly data
+  const studentYearlyData = await Transaction.aggregate([
+    {
+      $match: {
+        user: { $in: studentUserIds },
+        createdAt: { $gte: yearStart, $lte: yearEnd }
+      }
+    },
+    {
+      $group: {
+        _id: { $month: '$createdAt' },
+        count: { $sum: 1 }
+      }
+    },
+    {
+      $sort: { _id: 1 }
+    }
+  ]);
+
+  // Format yearly data with all months (fill missing months with 0)
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const clientYearlyChartData = Array.from({ length: 12 }, (_, i) => {
+    const monthData = clientYearlyData.find(d => d._id === i + 1);
+    return {
+      month: monthNames[i],
+      transactions: monthData ? monthData.count : 0
+    };
+  });
+
+  const studentYearlyChartData = Array.from({ length: 12 }, (_, i) => {
+    const monthData = studentYearlyData.find(d => d._id === i + 1);
+    return {
+      month: monthNames[i],
+      transactions: monthData ? monthData.count : 0
+    };
+  });
 
   res.status(200).json({
     status: 'success',
@@ -228,11 +303,14 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
         totalJobs,
         activeJobs,
         pendingApplications,
-        totalSubscriptions,
-        premiumSubscriptions,
+        currentPremiumStudents,
+        totalClientTransactions,
         freeSubscriptions,
+        totalActiveSubscriptions,
       },
       recentUsers,
+      clientYearlyChartData,
+      studentYearlyChartData,
     },
   });
 });

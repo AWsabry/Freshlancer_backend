@@ -1,21 +1,21 @@
 const mongoose = require('mongoose');
 
-const offerSchema = new mongoose.Schema({
+const couponSchema = new mongoose.Schema({
   title: {
     type: String,
-    required: [true, 'Offer must have a title'],
+    required: [true, 'Coupon must have a title'],
     trim: true,
-    maxlength: [100, 'Offer title must be less than 100 characters'],
+    maxlength: [100, 'Coupon title must be less than 100 characters'],
   },
   description: {
     type: String,
-    required: [true, 'Offer must have a description'],
+    required: [true, 'Coupon must have a description'],
     trim: true,
-    maxlength: [500, 'Offer description must be less than 500 characters'],
+    maxlength: [500, 'Coupon description must be less than 500 characters'],
   },
   targetAudience: {
     type: String,
-    required: [true, 'Offer must have a target audience'],
+    required: [true, 'Coupon must have a target audience'],
     enum: {
       values: ['student', 'client', 'both'],
       message: 'Target audience must be student, client, or both',
@@ -23,16 +23,16 @@ const offerSchema = new mongoose.Schema({
   },
   offerType: {
     type: String,
-    required: [true, 'Offer must have a type'],
+    required: [true, 'Coupon must have a type'],
     enum: {
       values: ['discount', 'bonus_points', 'free_applications', 'premium_trial', 'bundle', 'custom'],
-      message: 'Invalid offer type',
+      message: 'Invalid coupon type',
     },
   },
   // Discount details
   discountPercentage: {
     type: Number,
-    min: [0, 'Discount percentage cannot be negative'],
+    min: [1, 'Discount percentage must be at least 1%'],
     max: [100, 'Discount percentage cannot exceed 100%'],
   },
   // Bonus details
@@ -48,7 +48,7 @@ const offerSchema = new mongoose.Schema({
     type: Number,
     min: [1, 'Premium trial must be at least 1 day'],
   },
-  // Package details for bundled offers
+  // Package details for bundled coupons
   packageDetails: {
     originalPrice: {
       type: Number,
@@ -76,17 +76,15 @@ const offerSchema = new mongoose.Schema({
   // Validity period
   startDate: {
     type: Date,
-    required: [true, 'Offer must have a start date'],
+    required: [true, 'Coupon must have a start date'],
   },
   endDate: {
     type: Date,
-    required: [true, 'Offer must have an end date'],
+    required: [true, 'Coupon must have an end date'],
     validate: {
       validator: function(value) {
-        // Get the startDate - could be from this.startDate (new) or this.get('startDate') (existing)
         const startDate = this.startDate || this.get('startDate');
-        if (!startDate || !value) return true; // Let required validator handle missing values
-        // Compare dates by setting time to midnight UTC to avoid timezone issues
+        if (!startDate || !value) return true;
         const start = new Date(startDate);
         start.setUTCHours(0, 0, 0, 0);
         const end = new Date(value);
@@ -145,19 +143,20 @@ const offerSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'Terms must be less than 1000 characters'],
   },
-  // Coupon code (optional)
+  // Coupon code (required for coupons)
   couponCode: {
     type: String,
+    required: [true, 'Coupon must have a coupon code'],
     trim: true,
     uppercase: true,
     unique: true,
-    sparse: true, // Allows null values while maintaining uniqueness for non-null values
+    sparse: true,
   },
   // Metadata
   createdBy: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',
-    required: [true, 'Offer must be created by an admin'],
+    required: [true, 'Coupon must be created by an admin'],
   },
   createdAt: {
     type: Date,
@@ -170,28 +169,29 @@ const offerSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-offerSchema.index({ targetAudience: 1, isActive: 1, startDate: 1, endDate: 1 });
-offerSchema.index({ featured: 1 });
-offerSchema.index({ couponCode: 1 });
+couponSchema.index({ targetAudience: 1, isActive: 1, startDate: 1, endDate: 1 });
+couponSchema.index({ featured: 1 });
+couponSchema.index({ couponCode: 1 });
 
 // Update the updatedAt field
-offerSchema.pre('save', function(next) {
+couponSchema.pre('save', function(next) {
   if (!this.isNew) {
     this.updatedAt = Date.now();
   }
   next();
 });
 
-// Automatically deactivate expired offers
-offerSchema.pre(/^find/, function(next) {
-  // Automatically set isActive to false for expired offers
-  const now = new Date();
-  this.where({ endDate: { $lt: now }, isActive: true }).update({ isActive: false });
-  next();
-});
+// Automatically deactivate expired coupons
+// Note: This should be done via a scheduled job, not in a pre-find hook
+// as it can interfere with queries. Removed to prevent query interference.
+// couponSchema.pre(/^find/, function(next) {
+//   const now = new Date();
+//   this.where({ endDate: { $lt: now }, isActive: true }).update({ isActive: false });
+//   next();
+// });
 
-// Virtual for checking if offer is currently valid
-offerSchema.virtual('isValid').get(function() {
+// Virtual for checking if coupon is currently valid
+couponSchema.virtual('isValid').get(function() {
   const now = new Date();
   return this.isActive &&
          this.startDate <= now &&
@@ -200,7 +200,7 @@ offerSchema.virtual('isValid').get(function() {
 });
 
 // Virtual for calculating savings percentage
-offerSchema.virtual('savingsPercentage').get(function() {
+couponSchema.virtual('savingsPercentage').get(function() {
   if (this.packageDetails?.originalPrice && this.packageDetails?.discountedPrice) {
     const savings = this.packageDetails.originalPrice - this.packageDetails.discountedPrice;
     return Math.round((savings / this.packageDetails.originalPrice) * 100);
@@ -208,19 +208,19 @@ offerSchema.virtual('savingsPercentage').get(function() {
   return this.discountPercentage || 0;
 });
 
-// Method to check if user has already used this offer
-offerSchema.methods.hasUserUsedOffer = function(userId) {
+// Method to check if user has already used this coupon
+couponSchema.methods.hasUserUsedCoupon = function(userId) {
   return this.usedBy.some(usage => usage.user.toString() === userId.toString());
 };
 
-// Method to record offer usage
-offerSchema.methods.recordUsage = async function(userId) {
+// Method to record coupon usage
+couponSchema.methods.recordUsage = async function(userId) {
   if (this.maxUsageCount && this.currentUsageCount >= this.maxUsageCount) {
-    throw new Error('This offer has reached its maximum usage limit');
+    throw new Error('This coupon has reached its maximum usage limit');
   }
 
-  if (this.hasUserUsedOffer(userId)) {
-    throw new Error('You have already used this offer');
+  if (this.hasUserUsedCoupon(userId)) {
+    throw new Error('You have already used this coupon');
   }
 
   this.usedBy.push({ user: userId, usedAt: Date.now() });
@@ -229,9 +229,11 @@ offerSchema.methods.recordUsage = async function(userId) {
 };
 
 // Set virtuals to true in JSON
-offerSchema.set('toJSON', { virtuals: true });
-offerSchema.set('toObject', { virtuals: true });
+couponSchema.set('toJSON', { virtuals: true });
+couponSchema.set('toObject', { virtuals: true });
 
-const Offer = mongoose.model('Offer', offerSchema);
+// Use 'coupon' as the collection name
+const Coupon = mongoose.model('Coupon', couponSchema, 'coupon');
 
-module.exports = Offer;
+module.exports = Coupon;
+

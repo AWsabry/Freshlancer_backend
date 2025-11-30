@@ -215,6 +215,8 @@ const userSchema = new mongoose.Schema({
       linkedin: String,
       website: String,
       behance: String,
+      telegram: String,
+      whatsapp: String,
     },
 
     // Bio and availability
@@ -255,6 +257,16 @@ const userSchema = new mongoose.Schema({
       url: String,
       uploadedAt: Date,
     },
+
+    // Additional Documents (optional)
+    additionalDocuments: [
+      {
+        filename: String,
+        url: String,
+        uploadedAt: Date,
+        description: String, // Optional description for the document
+      },
+    ],
 
     // Student verification
     isVerified: {
@@ -332,19 +344,37 @@ const userSchema = new mongoose.Schema({
     },
     industry: {
       type: String,
+      trim: true,
+    },
+    industryOther: {
+      type: String,
+      trim: true,
+    },
+    yearsOfExperience: {
+      type: Number,
+      min: 0,
+      max: 50,
+    },
+    age: {
+      type: Number,
+      min: 18,
+      max: 100,
+    },
+    howDidYouHear: {
+      type: String,
       enum: [
-        'Technology',
-        'E-commerce',
-        'Healthcare',
-        'Finance',
-        'Education',
-        'Marketing',
-        'Real Estate',
-        'Manufacturing',
-        'Consulting',
-        'Non-profit',
+        'Google Search',
+        'Social Media',
+        'Friend/Colleague',
+        'University/College',
+        'Advertisement',
+        'Blog/Article',
         'Other',
       ],
+    },
+    howDidYouHearOther: {
+      type: String,
+      trim: true,
     },
     isStartup: {
       type: Boolean,
@@ -358,6 +388,13 @@ const userSchema = new mongoose.Schema({
         'Company description must be less than 1000 characters',
       ],
     },
+    // Social links for clients
+    socialLinks: {
+      linkedin: String,
+      website: String,
+      telegram: String,
+      whatsapp: String,
+    },
 
     // Business details
     businessRegistrationNumber: String,
@@ -366,18 +403,6 @@ const userSchema = new mongoose.Schema({
       type: Boolean,
       default: false,
     },
-    verificationDocuments: [
-      {
-        type: String,
-        url: String,
-        uploadedAt: Date,
-        status: {
-          type: String,
-          enum: ['pending', 'approved', 'rejected'],
-          default: 'pending',
-        },
-      },
-    ],
 
     // Payment and billing
     billingAddress: {
@@ -401,29 +426,6 @@ const userSchema = new mongoose.Schema({
         expiryDate: String,
       },
     ],
-
-    // Project preferences
-    typicalBudgetRange: {
-      min: Number,
-      max: Number,
-      currency: {
-        type: String,
-        enum: ['USD', 'EUR', 'GBP', 'EGP'],
-        default: 'USD',
-      },
-    },
-    preferredCommunication: [
-      {
-        type: String,
-        enum: ['email', 'phone', 'video_call', 'chat'],
-      },
-    ],
-    workingHours: {
-      timezone: String,
-      start: String, // e.g., "09:00"
-      end: String, // e.g., "17:00"
-      workingDays: [String], // e.g., ["Monday", "Tuesday", "Wednesday"]
-    },
 
     // Points-based system (direct, no packages)
     pointsRemaining: {
@@ -484,8 +486,8 @@ const userSchema = new mongoose.Schema({
   lastLoginAt: Date,
   accountCreatedSource: {
     type: String,
-    enum: ['web', 'mobile', 'api'],
-    default: 'web',
+    enum: ['Web', 'Mobile',],
+    default: 'Web',
   },
 
   // Preferences and settings
@@ -504,21 +506,6 @@ const userSchema = new mongoose.Schema({
         default: true,
       },
       marketingEmails: {
-        type: Boolean,
-        default: false,
-      },
-    },
-    privacy: {
-      profileVisibility: {
-        type: String,
-        enum: ['public', 'limited', 'private'],
-        default: 'public',
-      },
-      showEmail: {
-        type: Boolean,
-        default: false,
-      },
-      showPhone: {
         type: Boolean,
         default: false,
       },

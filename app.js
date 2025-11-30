@@ -20,8 +20,9 @@ const notificationRouter = require('./routers/notificationRouter');
 const transactionRouter = require('./routers/transactionRouter');
 const adminRouter = require('./routers/adminRouter');
 const paymobRouter = require('./routers/paymobRouter');
-const offerRouter = require('./routers/offerRoutes');
-const couponRouter = require('./routes/couponRoutes');
+const couponRouter = require('./routers/couponRouter');
+const startupRouter = require('./routers/startupRouter');
+const contactRouter = require('./routers/contactRouter');
 const AppError = require('./utils/AppError');
 const globalErrorHandler = require('./controllers/errorController');
 
@@ -88,9 +89,10 @@ app.use('/api/v1/profiles', profileViewRouter);
 app.use('/api/v1/notifications', notificationRouter);
 app.use('/api/v1/transactions', transactionRouter);
 app.use('/api/v1/admin', adminRouter);
-app.use('/api/v1/offers', offerRouter);
-app.use('/api/v1/coupons', couponRouter);
 app.use('/api/v1/paymob', paymobRouter);
+app.use('/api/v1/coupons', couponRouter);
+app.use('/api/v1/startups', startupRouter);
+app.use('/api/v1/contacts', contactRouter);
 
 //global middleware to handle unhandled routes
 app.all('*', (req, res, next) => {
