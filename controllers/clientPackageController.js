@@ -56,7 +56,7 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
     return next(new AppError('Only clients can purchase packages', 403));
   }
 
-  const { packageType, packageId, paymentMethod, currency = 'USD', amount } = req.body;
+  const { packageType, packageId, paymentMethod, currency = 'USD', amount, couponCode } = req.body;
 
   // Fetch package from database - prefer packageId if provided, otherwise use packageType
   let packageDoc;
@@ -83,27 +83,114 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
     description: packageDoc.description,
   };
 
-  // Use the amount sent from frontend (includes processing fees) or calculate it
   // Convert base price to the requested currency
   const packagePrice = getPriceForCurrency(config.priceUSD, currency);
 
-  // Use the total amount from frontend (which includes processing fees)
-  const totalAmount = amount || packagePrice;
+  // Always use the base package price as original amount (ignore frontend amount if coupon is provided)
+  // This ensures consistent discount calculation on the backend
+  let originalAmount = packagePrice;
+  let totalAmount = originalAmount;
+  let appliedCoupon = null;
+
+  // Apply coupon discount if provided
+  if (couponCode) {
+    console.log('🎫 Validating coupon code for package purchase:', couponCode);
+    const Coupon = require('../models/couponModel');
+
+    const coupon = await Coupon.findOne({
+      couponCode: couponCode.toUpperCase().trim(),
+      isActive: true,
+      startDate: { $lte: new Date() },
+      endDate: { $gte: new Date() },
+    });
+
+    if (!coupon) {
+      console.log('❌ Invalid or expired coupon code');
+      return next(new AppError('Invalid or expired coupon code', 404));
+    }
+
+    // Check target audience
+    if (coupon.targetAudience !== 'both' && coupon.targetAudience !== 'client') {
+      console.log('❌ Coupon not available for clients');
+      return next(new AppError('This coupon code is not available for clients', 403));
+    }
+
+    // Check if user has already used this coupon
+    if (coupon.hasUserUsedCoupon(req.user._id)) {
+      console.log('❌ User already used this coupon');
+      return next(new AppError('You have already used this coupon code', 400));
+    }
+
+    // Check usage limit
+    if (coupon.maxUsageCount && coupon.currentUsageCount >= coupon.maxUsageCount) {
+      console.log('❌ Coupon reached usage limit');
+      return next(new AppError('This coupon code has reached its usage limit', 400));
+    }
+
+    // Apply discount
+    if (coupon.discountPercentage) {
+      const discountAmount = (originalAmount * coupon.discountPercentage) / 100;
+      totalAmount = Math.max(0, originalAmount - discountAmount);
+
+      console.log('✅ Coupon applied to package:', {
+        code: coupon.couponCode,
+        discount: `${coupon.discountPercentage}%`,
+        discountAmount,
+        originalAmount,
+        finalAmount: totalAmount
+      });
+
+      appliedCoupon = {
+        id: coupon._id,
+        code: coupon.couponCode,
+        discountPercentage: coupon.discountPercentage,
+        discountAmount,
+      };
+    }
+  }
+
+  // Add processing fees (3% for EGP payments)
+  const processingFee = currency === 'EGP' ? totalAmount * 0.03 : 0;
+  const finalAmountWithFees = totalAmount + processingFee;
+
+  console.log('💰 Payment calculation:', {
+    originalAmount,
+    discount: appliedCoupon ? appliedCoupon.discountAmount : 0,
+    subtotalAfterDiscount: totalAmount,
+    processingFee,
+    finalAmount: finalAmountWithFees,
+    currency
+  });
 
   // Create transaction with points directly (no ClientPackage)
-  const transaction = await Transaction.create({
+  const transactionData = {
     user: req.user._id,
     type: 'package_purchase',
-    amount: totalAmount,
+    amount: finalAmountWithFees,
     currency: currency,
     status: 'pending',
     paymentMethod: paymentMethod || 'credit_card',
-    description: `${config.name} purchase - ${config.pointsTotal} points`,
+    description: `${config.name} purchase - ${config.pointsTotal} points${appliedCoupon ? ` with ${appliedCoupon.discountPercentage}% discount` : ''}`,
     points: config.pointsTotal,
     packageType: config.type,
     packageId: config._id,
     pointsProcessed: false,
-  });
+    metadata: {},
+  };
+
+  // Add coupon information to transaction metadata if applied
+  if (appliedCoupon) {
+    transactionData.metadata.coupon = {
+      id: appliedCoupon.id,
+      code: appliedCoupon.code,
+      discountPercentage: appliedCoupon.discountPercentage,
+      discountAmount: appliedCoupon.discountAmount,
+      originalAmount: originalAmount,
+      finalAmount: totalAmount,
+    };
+  }
+
+  const transaction = await Transaction.create(transactionData);
 
   // If currency is EGP, use Paymob payment gateway
   if (currency === 'EGP') {
@@ -125,14 +212,14 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
         },
       };
 
-      // Create Paymob payment intention with total amount (includes processing fees)
+      // Create Paymob payment intention with final amount (includes discount and processing fees)
       const paymentIntention = await paymobService.createPaymentIntention({
-        amount: totalAmount,
+        amount: finalAmountWithFees,
         currency: 'EGP',
         items: [{
           name: config.name,
-          amount: totalAmount,
-          description: `${config.pointsTotal} points package`,
+          amount: finalAmountWithFees,
+          description: `${config.pointsTotal} points package${appliedCoupon ? ` (with ${appliedCoupon.discountPercentage}% discount)` : ''}`,
           quantity: 1,
         }],
         billingData: req.body.billingData,

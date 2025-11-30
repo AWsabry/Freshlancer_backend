@@ -1,5 +1,6 @@
 const JobPost = require('../models/jobPostModel');
 const JobApplication = require('../models/jobApplicationModel');
+const Category = require('../models/categoryModel');
 const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
 
@@ -12,6 +13,17 @@ exports.createJobPost = catchAsync(async (req, res, next) => {
 
   // Add the client ID to the job post data
   req.body.client = req.user.id;
+
+  // Validate category exists and is active
+  if (req.body.category) {
+    const category = await Category.findOne({
+      name: req.body.category,
+      isActive: true,
+    });
+    if (!category) {
+      return next(new AppError('Invalid or inactive category', 400));
+    }
+  }
 
   // Remove deadline if it's empty or not provided
   if (!req.body.deadline || req.body.deadline === '' || req.body.deadline === null) {
@@ -32,7 +44,7 @@ exports.createJobPost = catchAsync(async (req, res, next) => {
 exports.getAllJobPosts = catchAsync(async (req, res, next) => {
   // Create a copy of query object and remove excluded fields
   const queryObj = { ...req.query };
-  const excludedFields = ['page', 'sort', 'limit', 'fields'];
+  const excludedFields = ['page', 'sort', 'limit', 'fields', 'currency'];
   excludedFields.forEach((el) => delete queryObj[el]);
 
   // Only show open job posts to students, all posts to clients
@@ -50,18 +62,48 @@ exports.getAllJobPosts = catchAsync(async (req, res, next) => {
 
   // Create query
   let query = JobPost.find(queryObject);
-
+  
+  // Apply currency filter using where() to ensure dot notation works
+  if (req.query.currency) {
+    if (req.user.role === 'student') {
+      // Check if student has premium subscription
+      const Subscription = require('../models/subscriptionModel');
+      const subscription = await Subscription.findOne({
+        student: req.user._id,
+        status: 'active',
+      });
+      const isPremium = subscription?.plan === 'premium';
+      
+      if (isPremium) {
+        query = query.where('budget.currency').equals(req.query.currency);
+      }
+    } else {
+      // For clients and admins, allow currency filtering
+      query = query.where('budget.currency').equals(req.query.currency);
+    }
+  }
+  
   // Sorting
   if (req.query.sort) {
     // Handle special sort options
     if (req.query.sort === 'budget-desc') {
       // Sort by highest budget (budget.max descending)
       query = query.sort('-budget.max');
+    } else if (req.query.sort === 'budget-asc') {
+      // Sort by lowest budget (budget.min ascending)
+      query = query.sort('budget.min');
+    } else if (req.query.sort === 'createdAt-desc') {
+      // Sort by newest first (descending)
+      query = query.sort('-createdAt');
+    } else if (req.query.sort === 'createdAt-asc') {
+      // Sort by oldest first (ascending)
+      query = query.sort('createdAt');
     } else {
       const sortBy = req.query.sort.split(',').join(' ');
       query = query.sort(sortBy);
     }
   } else {
+    // Default: sort by newest first (descending)
     query = query.sort('-createdAt');
   }
 
@@ -275,6 +317,16 @@ exports.getJobPost = catchAsync(async (req, res, next) => {
 
 // Update a job post (only by the client who created it)
 exports.updateJobPost = catchAsync(async (req, res, next) => {
+  // Validate category if it's being updated
+  if (req.body.category) {
+    const category = await Category.findOne({
+      name: req.body.category,
+      isActive: true,
+    });
+    if (!category) {
+      return next(new AppError('Invalid or inactive category', 400));
+    }
+  }
   const jobPost = await JobPost.findById(req.params.id);
 
   if (!jobPost) {
@@ -518,15 +570,41 @@ exports.searchJobPosts = catchAsync(async (req, res, next) => {
   } else if (req.user.role === 'client') {
     matchStage.$and.push({ client: req.user._id });
   }
+  
+  // Handle currency filter (premium only for students)
+  if (req.query.currency) {
+    if (req.user.role === 'student') {
+      // Check if student has premium subscription
+      const Subscription = require('../models/subscriptionModel');
+      const subscription = await Subscription.findOne({
+        student: req.user._id,
+        status: 'active',
+      });
+      const isPremium = subscription?.plan === 'premium';
+      
+      if (isPremium) {
+        matchStage.$and.push({ 'budget.currency': req.query.currency });
+      }
+    } else {
+      // For clients and admins, allow currency filtering
+      matchStage.$and.push({ 'budget.currency': req.query.currency });
+    }
+  }
 
   const page = req.query.page * 1 || 1;
   const limit = req.query.limit * 1 || 10;
   const skip = (page - 1) * limit;
 
   // Determine sort order
-  let sortStage = { createdAt: -1 }; // Default sort
+  let sortStage = { createdAt: -1 }; // Default sort (newest first)
   if (req.query.sort === 'budget-desc') {
     sortStage = { 'budget.max': -1 }; // Sort by highest budget
+  } else if (req.query.sort === 'budget-asc') {
+    sortStage = { 'budget.min': 1 }; // Sort by lowest budget
+  } else if (req.query.sort === 'createdAt-desc') {
+    sortStage = { createdAt: -1 }; // Sort by newest first (descending)
+  } else if (req.query.sort === 'createdAt-asc') {
+    sortStage = { createdAt: 1 }; // Sort by oldest first (ascending)
   }
 
   const jobPosts = await JobPost.aggregate([
@@ -633,3 +711,4 @@ exports.getFeaturedJobPosts = catchAsync(async (req, res, next) => {
     },
   });
 });
+

@@ -57,8 +57,27 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
   if (processedData.isPaid) {
     const Subscription = require('../models/subscriptionModel');
     const Notification = require('../models/notificationModel');
+    const Coupon = require('../models/couponModel');
 
     const user = await User.findById(transaction.user);
+
+    // Record coupon usage if coupon was applied
+    if (transaction.metadata?.coupon?.id && !transaction.metadata?.couponUsageRecorded) {
+      console.log('🎫 Recording coupon usage for:', transaction.metadata.coupon.code);
+      try {
+        const coupon = await Coupon.findById(transaction.metadata.coupon.id);
+        if (coupon && !coupon.hasUserUsedCoupon(user._id)) {
+          await coupon.recordUsage(user._id);
+          transaction.metadata.couponUsageRecorded = true;
+          await transaction.save();
+          console.log('✅ Coupon usage recorded successfully');
+        } else {
+          console.log('⚠️ Coupon already used or not found');
+        }
+      } catch (error) {
+        console.error('❌ Error recording coupon usage:', error.message);
+      }
+    }
 
     if (transaction.type === 'subscription_payment') {
       // Handle subscription upgrade
@@ -363,6 +382,25 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
     }
 
     console.log('✅ User found:', user._id, user.email);
+
+    // Record coupon usage if coupon was applied
+    if (transaction.metadata?.coupon?.id && !transaction.metadata?.couponUsageRecorded) {
+      console.log('🎫 Recording coupon usage for:', transaction.metadata.coupon.code);
+      try {
+        const Coupon = require('../models/couponModel');
+        const coupon = await Coupon.findById(transaction.metadata.coupon.id);
+        if (coupon && !coupon.hasUserUsedCoupon(user._id)) {
+          await coupon.recordUsage(user._id);
+          transaction.metadata.couponUsageRecorded = true;
+          await transaction.save();
+          console.log('✅ Coupon usage recorded successfully');
+        } else {
+          console.log('⚠️ Coupon already used or not found');
+        }
+      } catch (error) {
+        console.error('❌ Error recording coupon usage:', error.message);
+      }
+    }
 
     // Handle subscription payment
     if (transaction.type === 'subscription_payment') {

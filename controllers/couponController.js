@@ -276,8 +276,15 @@ exports.getCoupon = catchAsync(async (req, res, next) => {
 // @route   GET /api/v1/coupons/code/:code
 // @access  Public (authenticated)
 exports.getCouponByCode = catchAsync(async (req, res, next) => {
+  // Validate coupon code parameter
+  if (!req.params.code || !req.params.code.trim()) {
+    return next(new AppError('Coupon code is required', 400));
+  }
+
+  const couponCode = req.params.code.toUpperCase().trim();
+
   const coupon = await Coupon.findOne({
-    couponCode: req.params.code.toUpperCase(),
+    couponCode: couponCode,
     isActive: true,
     startDate: { $lte: new Date() },
     endDate: { $gte: new Date() },
@@ -292,9 +299,24 @@ exports.getCouponByCode = catchAsync(async (req, res, next) => {
     return next(new AppError('This coupon code is not available for your account type', 403));
   }
 
-  // Check if user has already used this coupon
-  if (coupon.hasUserUsedCoupon(req.user._id)) {
-    return next(new AppError('You have already used this coupon', 400));
+  // Check if user has already used this coupon (with error handling)
+  try {
+    if (coupon.hasUserUsedCoupon && coupon.hasUserUsedCoupon(req.user._id)) {
+      return next(new AppError('You have already used this coupon', 400));
+    }
+  } catch (error) {
+    console.error('Error checking coupon usage:', error);
+    // If method fails, check manually
+    if (coupon.usedBy && Array.isArray(coupon.usedBy)) {
+      const hasUsed = coupon.usedBy.some(usage => {
+        const userId = usage.user?.toString ? usage.user.toString() : usage.user;
+        const currentUserId = req.user._id?.toString ? req.user._id.toString() : req.user._id;
+        return userId === currentUserId;
+      });
+      if (hasUsed) {
+        return next(new AppError('You have already used this coupon', 400));
+      }
+    }
   }
 
   // Check if coupon has reached max usage
@@ -302,10 +324,13 @@ exports.getCouponByCode = catchAsync(async (req, res, next) => {
     return next(new AppError('This coupon has reached its maximum usage limit', 400));
   }
 
+  // Convert to plain object to avoid serialization issues
+  const couponObj = coupon.toObject ? coupon.toObject({ virtuals: true }) : coupon;
+
   res.status(200).json({
     status: 'success',
     data: {
-      coupon,
+      coupon: couponObj,
     },
   });
 });
