@@ -28,6 +28,30 @@ const verificationStorage = multer.diskStorage({
   },
 });
 
+// Configure multer storage for additional documents
+const additionalDocumentStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/additional-documents');
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `document-${req.user.id}-${uniqueSuffix}${ext}`);
+  },
+});
+
+// Configure multer storage for startup logos
+const startupLogoStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/startup-logos');
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `logo-${req.user.id}-${uniqueSuffix}${ext}`);
+  },
+});
+
 // File filter for resumes - PDF and DOC files
 const resumeFileFilter = (req, file, cb) => {
   const allowedTypes = [
@@ -71,6 +95,53 @@ const verificationFileFilter = (req, file, cb) => {
   }
 };
 
+// File filter for additional documents - PDF, DOC, DOCX, and images
+const additionalDocumentFileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+  ];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(
+      new AppError(
+        'Invalid file type. Only PDF, DOC, DOCX, JPG, and PNG files are allowed.',
+        400
+      ),
+      false
+    );
+  }
+};
+
+// File filter for startup logos - images only
+const startupLogoFileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+  ];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(
+      new AppError(
+        'Invalid file type. Only JPG, PNG, GIF, and WEBP images are allowed.',
+        400
+      ),
+      false
+    );
+  }
+};
+
 // Create multer upload instance for resumes
 const uploadResume = multer({
   storage: resumeStorage,
@@ -89,7 +160,27 @@ const uploadVerificationDocument = multer({
   },
 });
 
+// Create multer upload instance for additional documents
+const uploadAdditionalDocument = multer({
+  storage: additionalDocumentStorage,
+  fileFilter: additionalDocumentFileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max file size
+  },
+});
+
+// Create multer upload instance for startup logos
+const uploadStartupLogo = multer({
+  storage: startupLogoStorage,
+  fileFilter: startupLogoFileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB max file size
+  },
+});
+
 module.exports = {
   uploadResume,
   uploadVerificationDocument,
+  uploadAdditionalDocument,
+  uploadStartupLogo,
 };

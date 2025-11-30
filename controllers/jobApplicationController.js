@@ -291,6 +291,12 @@ exports.getMyApplications = catchAsync(async (req, res, next) => {
             };
           }
         }
+        
+        // Replace contactUnlockedByClient boolean with "premium members only" for non-premium users
+        if (appObj.contactUnlockedByClient !== undefined) {
+          appObj.contactUnlockedByClient = 'premium members only';
+        }
+        
         return appObj;
       });
     }
@@ -404,6 +410,11 @@ exports.getApplication = catchAsync(async (req, res, next) => {
     
     // Hide client data and budget for free plan users
     if (!isPremium) {
+      // Replace contactUnlockedByClient boolean with "premium members only" for non-premium users
+      if (appObj.contactUnlockedByClient !== undefined) {
+        appObj.contactUnlockedByClient = 'premium members only';
+      }
+      
       if (appObj.jobPost) {
         // Hide client data
         if (appObj.jobPost.client) {
@@ -987,11 +998,11 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     pipeline.push({ $match: matchStage });
   }
 
-  // Exclude password and appliedJobs from student data (after filtering)
+  // Exclude password and studentProfile from student data (after filtering)
   pipeline.push({
     $project: {
       'student.password': 0,
-      'student.studentProfile.appliedJobs': 0,
+      'student.studentProfile': 0,
     },
   });
 
@@ -1016,7 +1027,7 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   // Execute aggregation
   let applications = await JobApplication.aggregate(pipeline);
 
-  // Hide student data for applications that are not unlocked, and exclude password/appliedJobs for unlocked ones
+  // Hide student data for applications that are not unlocked, and exclude password/appliedJobs/studentProfile for unlocked ones
   applications = applications.map((app) => {
     // Check if student contact is unlocked
     // contactUnlockedByClient defaults to false, so check explicitly
@@ -1026,12 +1037,10 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
         message: 'Student is Locked'
       };
     } else {
-      // If unlocked, remove password and appliedJobs from student data
+      // If unlocked, remove password, appliedJobs, and entire studentProfile from student data
       if (app.student) {
         delete app.student.password;
-        if (app.student.studentProfile && app.student.studentProfile.appliedJobs) {
-          delete app.student.studentProfile.appliedJobs;
-        }
+        delete app.student.studentProfile;
       }
     }
     return app;

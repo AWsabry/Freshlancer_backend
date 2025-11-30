@@ -130,6 +130,11 @@ const jobPostSchema = new mongoose.Schema({
     ref: 'User',
     required: [true, 'Job post must belong to a client'],
   },
+  startup: {
+    type: mongoose.Schema.ObjectId,
+    ref: 'Startup',
+    required: false,
+  },
   attachments: [
     {
       name: String,
@@ -258,6 +263,10 @@ jobPostSchema.pre(/^find/, function (next) {
   this.populate({
     path: 'client',
     select: 'name email photo role',
+  });
+  this.populate({
+    path: 'startup',
+    select: 'startupName',
   });
   next();
 });

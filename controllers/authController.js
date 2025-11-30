@@ -81,8 +81,8 @@ exports.signup = catchAsync(async (req, res, next) => {
     passwordConfirm: req.body.passwordConfirm,
     passwordChangedAt: req.body.passwordChangedAt,
     role: req.body.role,
-    emailVerified: true, // Auto-verify email on registration
-    accountCreatedSource: 'api', // Track how account was created
+    emailVerified: false, // Email verification required - will be verified via email
+    accountCreatedSource: 'Web', // Track how account was created
     profileCompletionPercentage: 20, // Basic info filled = 20%
   };
 
@@ -178,7 +178,6 @@ exports.signup = catchAsync(async (req, res, next) => {
   } else if (req.body.role === 'client') {
     userData.clientProfile = {
       paymentMethods: [],
-      verificationDocuments: [],
       isVerified: false,
     };
 
@@ -193,13 +192,90 @@ exports.signup = catchAsync(async (req, res, next) => {
       if (req.body.clientProfile.isStartup !== undefined) {
         userData.clientProfile.isStartup = req.body.clientProfile.isStartup;
       }
+      if (req.body.clientProfile.yearsOfExperience !== undefined) {
+        userData.clientProfile.yearsOfExperience = parseInt(req.body.clientProfile.yearsOfExperience);
+      }
+      if (req.body.clientProfile.howDidYouHear) {
+        userData.clientProfile.howDidYouHear = req.body.clientProfile.howDidYouHear;
+      }
+    }
+    
+    // Add age if provided (at root level)
+    if (req.body.age !== undefined) {
+      userData.age = parseInt(req.body.age);
+    }
+
+    // Create startup if provided during registration
+    if (req.body.startup && req.body.clientProfile?.isStartup) {
+      const Startup = require('../models/startupModel');
+      const startupData = {
+        client: null, // Will be set after user is created
+        startupName: req.body.startup.startupName,
+        position: req.body.startup.position,
+        numberOfEmployees: req.body.startup.numberOfEmployees,
+        industry: req.body.startup.industry,
+        stage: req.body.startup.stage,
+      };
+      if (req.body.startup.industryOther) {
+        startupData.industryOther = req.body.startup.industryOther;
+      }
+      // Store startup data to create after user is created
+      userData._startupData = startupData;
     }
   }
 
   const newUser = await User.create(userData);
+
+  // Create startup if startup data was provided
+  if (newUser.clientProfile?.isStartup && userData._startupData) {
+    const Startup = require('../models/startupModel');
+    userData._startupData.client = newUser._id;
+    await Startup.create(userData._startupData);
+    delete userData._startupData; // Clean up
+  }
   
-  // Send token and user data immediately after registration
-  createSendToken(newUser, 201, req, res, 'Registration successful!');
+  // Generate email verification token
+  const verificationToken = newUser.createEmailVerificationToken();
+  await newUser.save({ validateBeforeSave: false });
+
+  // Send verification email
+  try {
+    const verificationURL = `${process.env.FRONTEND_URL || req.protocol + '://' + req.get('host')}/verify-email/${verificationToken}`;
+
+    // Get user role specific subject and message
+    const welcomeMessage =
+      newUser.role === 'student'
+        ? 'Welcome to FreeStudent - Start Your Freelancing Journey!'
+        : 'Welcome to FreeStudent - Find Amazing Student Talent!';
+
+    await sendEmail({
+      type: 'welcome',
+      email: newUser.email,
+      name: newUser.name,
+      userRole: newUser.role,
+      subject: welcomeMessage,
+      verificationUrl: verificationURL,
+      message: `Welcome to FreeStudent! Please verify your email address to get started.`,
+    });
+
+    // Send token and user data along with verification email confirmation
+    createSendToken(newUser, 201, req, res, 'Registration successful! Please check your email to verify your account.');
+  } catch (err) {
+    // Log the error for debugging
+    console.error('Error sending verification email during signup:', {
+      error: err.message,
+      stack: err.stack,
+      userId: newUser._id,
+    });
+    
+    // If email sending fails, remove the token but still allow registration
+    newUser.emailVerificationToken = undefined;
+    newUser.emailVerificationExpires = undefined;
+    await newUser.save({ validateBeforeSave: false });
+
+    // Still send token but with warning message
+    createSendToken(newUser, 201, req, res, 'Registration successful! However, we could not send the verification email. Please use the resend verification email feature.');
+  }
 });
 
 exports.login = catchAsync(async (req, res, next) => {
@@ -240,7 +316,10 @@ exports.login = catchAsync(async (req, res, next) => {
     return next(new AppError('Invalid email or password', 401));
   }
 
-  // Email verification check removed - users can login immediately after registration
+  // Check if email is verified
+  if (!user.emailVerified) {
+    return next(new AppError('Please verify your email address before logging in. Check your inbox for the verification email or request a new one.', 401));
+  }
 
   // All checks passed - send token and user data
   createSendToken(user, 200, req, res, 'Login successful');
@@ -341,9 +420,9 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    const resetURL = `${req.protocol}://${req.get(
-      'host'
-    )}/api/v1/users/resetPassword/${resetToken}`;
+    // Use FRONTEND_URL if available, otherwise construct from request
+    const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+    const resetURL = `${frontendUrl}/reset-password/${resetToken}`;
 
     await sendEmail({
       type: 'password-reset',
@@ -360,13 +439,19 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
       message: 'Password reset email sent!',
     });
   } catch (err) {
+    // Log the error for debugging
+    console.error('Error sending password reset email:', {
+      error: err.message,
+      stack: err.stack,
+      userId: user._id,
+    });
+    
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
     await user.save({ validateBeforeSave: false });
 
     return next(
-      new AppError('There was an error sending the email. Try again later!'),
-      500
+      new AppError('There was an error sending the email. Try again later!', 500)
     );
   }
 });
@@ -384,9 +469,7 @@ exports.sendVerificationEmail = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    const verificationURL = `${req.protocol}://${req.get(
-      'host'
-    )}/api/v1/users/verifyEmail/${verificationToken}`;
+    const verificationURL = `${process.env.FRONTEND_URL || req.protocol + '://' + req.get('host')}/verify-email/${verificationToken}`;
 
     // Get user role specific subject and message
     const welcomeMessage =
@@ -407,22 +490,43 @@ exports.sendVerificationEmail = catchAsync(async (req, res, next) => {
     // Send token and user data along with verification email confirmation
     createSendToken(user, 200, req, res, 'Registration successful! Verification email sent.');
   } catch (err) {
+    // Log the error for debugging
+    console.error('Error sending verification email (sendVerificationEmail):', {
+      error: err.message,
+      stack: err.stack,
+      userId: user._id,
+    });
+    
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
     await user.save({ validateBeforeSave: false });
 
     return next(
-      new AppError('There was an error sending the email. Try again later!'),
-      500
+      new AppError('There was an error sending the email. Try again later!', 500)
     );
   }
 });
 
 exports.resendVerificationEmail = catchAsync(async (req, res, next) => {
-  const user = await User.findOne({ email: req.body.email });
-  if (!user) return next(new AppError('user not found', 404));
-  if (user.emailVerified)
-    return next(new AppError('email already verified', 400));
+  // If user is authenticated (optional), use their email, otherwise use email from body
+  let user;
+  if (req.user && req.user._id) {
+    // User is authenticated - use current user
+    user = await User.findById(req.user._id);
+  } else if (req.body.email) {
+    // User is not authenticated - find by email
+    user = await User.findOne({ email: req.body.email });
+  } else {
+    return next(new AppError('Email address is required', 400));
+  }
+
+  if (!user) return next(new AppError('User not found', 404));
+  if (user.emailVerified) {
+    return res.status(200).json({
+      status: 'success',
+      message: 'Your email is already verified!',
+    });
+  }
 
   //2)generate user token
   const verificationToken = user.createEmailVerificationToken();
@@ -430,9 +534,7 @@ exports.resendVerificationEmail = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    const verificationURL = `${req.protocol}://${req.get(
-      'host'
-    )}/api/v1/users/verifyEmail/${verificationToken}`;
+    const verificationURL = `${process.env.FRONTEND_URL || req.protocol + '://' + req.get('host')}/verify-email/${verificationToken}`;
 
     await sendEmail({
       type: 'resend-verification',
@@ -446,16 +548,22 @@ exports.resendVerificationEmail = catchAsync(async (req, res, next) => {
 
     res.status(200).json({
       status: 'success',
-      message: 'New verification email sent!',
+      message: 'New verification email sent! Please check your inbox.',
     });
   } catch (err) {
+    // Log the error for debugging
+    console.error('Error sending verification email (resendVerificationEmail):', {
+      error: err.message,
+      stack: err.stack,
+      userId: user._id,
+    });
+    
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
     await user.save({ validateBeforeSave: false });
 
     return next(
-      new AppError('There was an error sending the email. Try again later!'),
-      500
+      new AppError('There was an error sending the email. Try again later!', 500)
     );
   }
 });
@@ -475,6 +583,12 @@ exports.verifyEmail = catchAsync(async (req, res, next) => {
 
   //2)if there is user and token dose not expires verify the email
   if (!user) {
+    const frontendURL = process.env.FRONTEND_URL || 'http://localhost:3000';
+    // If request is from browser (has Accept: text/html), redirect to frontend
+    if (req.headers.accept && req.headers.accept.includes('text/html')) {
+      return res.redirect(`${frontendURL}/verify-email/error?message=Token is invalid or has expired. Your email may already be verified.`);
+    }
+    // Otherwise return JSON response
     return res.status(400).json({
       status: 'error',
       message:
@@ -487,6 +601,12 @@ exports.verifyEmail = catchAsync(async (req, res, next) => {
   user.emailVerificationExpires = undefined;
   await user.save();
 
+  const frontendURL = process.env.FRONTEND_URL || 'http://localhost:3000';
+  // If request is from browser (has Accept: text/html), redirect to frontend
+  if (req.headers.accept && req.headers.accept.includes('text/html')) {
+    return res.redirect(`${frontendURL}/verify-email/success?message=Email verified successfully! You can now log in.`);
+  }
+  // Otherwise return JSON response
   res.status(200).json({
     status: 'success',
     message: 'Email verified successfully! You can now log in.',
@@ -589,12 +709,17 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   const updateData = {};
 
   // Personal information fields (nationality is restricted and cannot be changed)
-  const allowedPersonalFields = ['name', 'photo', 'phone', 'age', 'gender'];
+  const allowedPersonalFields = ['name', 'photo', 'phone', 'age'];
   allowedPersonalFields.forEach((field) => {
     if (req.body[field] !== undefined) {
       updateData[field] = req.body[field];
     }
   });
+  
+  // Handle gender separately - convert empty strings to undefined for enum fields
+  if (req.body.gender !== undefined) {
+    updateData.gender = req.body.gender === '' ? undefined : req.body.gender;
+  }
 
   // Location fields - country cannot be changed, only city and timezone
   if (req.body.location) {
@@ -616,8 +741,10 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     // Skills
     if (sp.skills !== undefined) updateData['studentProfile.skills'] = sp.skills;
 
-    // Experience
-    if (sp.experienceLevel !== undefined) updateData['studentProfile.experienceLevel'] = sp.experienceLevel;
+    // Experience - convert empty strings to undefined for enum fields
+    if (sp.experienceLevel !== undefined) {
+      updateData['studentProfile.experienceLevel'] = sp.experienceLevel === '' ? undefined : sp.experienceLevel;
+    }
     if (sp.yearsOfExperience !== undefined)
       updateData['studentProfile.yearsOfExperience'] = sp.yearsOfExperience;
 
@@ -631,12 +758,27 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     // Portfolio
     if (sp.portfolio !== undefined) updateData['studentProfile.portfolio'] = sp.portfolio;
 
-    // Social links
-    if (sp.socialLinks !== undefined) updateData['studentProfile.socialLinks'] = sp.socialLinks;
+    // Social links - handle individual fields or entire object
+    if (sp.socialLinks !== undefined) {
+      if (typeof sp.socialLinks === 'object' && !Array.isArray(sp.socialLinks)) {
+        // If individual fields are provided, update them individually
+        if (sp.socialLinks.github !== undefined) updateData['studentProfile.socialLinks.github'] = sp.socialLinks.github;
+        if (sp.socialLinks.linkedin !== undefined) updateData['studentProfile.socialLinks.linkedin'] = sp.socialLinks.linkedin;
+        if (sp.socialLinks.website !== undefined) updateData['studentProfile.socialLinks.website'] = sp.socialLinks.website;
+        if (sp.socialLinks.behance !== undefined) updateData['studentProfile.socialLinks.behance'] = sp.socialLinks.behance;
+        if (sp.socialLinks.telegram !== undefined) updateData['studentProfile.socialLinks.telegram'] = sp.socialLinks.telegram;
+        if (sp.socialLinks.whatsapp !== undefined) updateData['studentProfile.socialLinks.whatsapp'] = sp.socialLinks.whatsapp;
+      } else {
+        // If entire object is provided, replace it
+        updateData['studentProfile.socialLinks'] = sp.socialLinks;
+      }
+    }
 
-    // Bio and availability
+    // Bio and availability - convert empty strings to undefined for enum fields
     if (sp.bio !== undefined) updateData['studentProfile.bio'] = sp.bio;
-    if (sp.availability !== undefined) updateData['studentProfile.availability'] = sp.availability;
+    if (sp.availability !== undefined) {
+      updateData['studentProfile.availability'] = sp.availability === '' ? undefined : sp.availability;
+    }
 
     // Languages
     if (sp.languages !== undefined) updateData['studentProfile.languages'] = sp.languages;
@@ -666,6 +808,20 @@ exports.updateMe = catchAsync(async (req, res, next) => {
 
     // Description
     if (cp.description !== undefined) updateData['clientProfile.description'] = cp.description;
+
+    // Social links - handle individual fields or entire object
+    if (cp.socialLinks !== undefined) {
+      if (typeof cp.socialLinks === 'object' && !Array.isArray(cp.socialLinks)) {
+        // If individual fields are provided, update them individually
+        if (cp.socialLinks.linkedin !== undefined) updateData['clientProfile.socialLinks.linkedin'] = cp.socialLinks.linkedin;
+        if (cp.socialLinks.website !== undefined) updateData['clientProfile.socialLinks.website'] = cp.socialLinks.website;
+        if (cp.socialLinks.telegram !== undefined) updateData['clientProfile.socialLinks.telegram'] = cp.socialLinks.telegram;
+        if (cp.socialLinks.whatsapp !== undefined) updateData['clientProfile.socialLinks.whatsapp'] = cp.socialLinks.whatsapp;
+      } else {
+        // If entire object is provided, replace it
+        updateData['clientProfile.socialLinks'] = cp.socialLinks;
+      }
+    }
   }
 
   // Support direct clientProfile fields for backwards compatibility
@@ -675,17 +831,70 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   }
 
   // 4) Update user document
-  const updatedUser = await User.findByIdAndUpdate(req.user.id, updateData, {
-    new: true,
-    runValidators: true,
-  });
+  try {
+    // Use $set operator for nested fields
+    const setData = {};
+    Object.keys(updateData).forEach(key => {
+      if (key.includes('.')) {
+        // Handle nested fields with $set
+        const parts = key.split('.');
+        let current = setData;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!current[parts[i]]) {
+            current[parts[i]] = {};
+          }
+          current = current[parts[i]];
+        }
+        current[parts[parts.length - 1]] = updateData[key];
+      } else {
+        setData[key] = updateData[key];
+      }
+    });
 
-  res.status(200).json({
-    status: 'success',
-    data: {
-      user: updatedUser,
-    },
-  });
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: setData },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!updatedUser) {
+      return next(new AppError('User not found', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile updated successfully',
+      data: {
+        user: updatedUser,
+      },
+    });
+  } catch (error) {
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return next(new AppError(`Validation error: ${errors.join(', ')}`, 400));
+    }
+    
+    // Handle duplicate key errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return next(new AppError(`This ${field} is already in use. Please use a different one.`, 400));
+    }
+    
+    // Log unexpected errors
+    console.error('Error updating profile:', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.user.id,
+      updateData: Object.keys(updateData),
+    });
+    
+    // Return user-friendly error
+    return next(new AppError('Failed to update profile. Please check your input and try again.', 500));
+  }
 });
 
 // Upload resume/CV
@@ -770,9 +979,141 @@ exports.deleteResume = catchAsync(async (req, res, next) => {
   });
 });
 
+// Upload additional document
+exports.uploadAdditionalDocument = catchAsync(async (req, res, next) => {
+  if (!req.file) {
+    return next(new AppError('Please upload a file', 400));
+  }
+
+  // Only allow students to upload additional documents
+  if (req.user.role !== 'student') {
+    return next(new AppError('Only students can upload additional documents', 403));
+  }
+
+  // Get the file path (relative to server root for storage)
+  const filePath = `/uploads/additional-documents/${req.file.filename}`;
+
+  // Get description from request body (optional)
+  const description = req.body.description || '';
+
+  // Get current user to add document to array
+  const user = await User.findById(req.user.id);
+
+  if (!user.studentProfile) {
+    user.studentProfile = {};
+  }
+
+  if (!user.studentProfile.additionalDocuments) {
+    user.studentProfile.additionalDocuments = [];
+  }
+
+  // Add new document to array
+  const newDocument = {
+    filename: req.file.originalname,
+    url: filePath,
+    uploadedAt: Date.now(),
+    description: description,
+  };
+
+  user.studentProfile.additionalDocuments.push(newDocument);
+  await user.save({ validateBeforeSave: false });
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Document uploaded successfully',
+    data: {
+      document: newDocument,
+      totalDocuments: user.studentProfile.additionalDocuments.length,
+    },
+  });
+});
+
+// Delete additional document
+exports.deleteAdditionalDocument = catchAsync(async (req, res, next) => {
+  // Only allow students to delete additional documents
+  if (req.user.role !== 'student') {
+    return next(new AppError('Only students can delete additional documents', 403));
+  }
+
+  const { documentIndex } = req.body;
+
+  if (documentIndex === undefined || documentIndex === null) {
+    return next(new AppError('Document index is required', 400));
+  }
+
+  const user = await User.findById(req.user.id);
+
+  if (!user.studentProfile?.additionalDocuments || !Array.isArray(user.studentProfile.additionalDocuments)) {
+    return next(new AppError('No additional documents found', 404));
+  }
+
+  if (documentIndex < 0 || documentIndex >= user.studentProfile.additionalDocuments.length) {
+    return next(new AppError('Invalid document index', 400));
+  }
+
+  const documentToDelete = user.studentProfile.additionalDocuments[documentIndex];
+
+  // Delete the file from filesystem
+  const fs = require('fs');
+  const path = require('path');
+  const filePath = path.join(__dirname, '..', documentToDelete.url);
+
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+
+  // Remove document from array
+  user.studentProfile.additionalDocuments.splice(documentIndex, 1);
+  await user.save({ validateBeforeSave: false });
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Document deleted successfully',
+  });
+});
+
 // @desc    Get platform statistics
 // @route   GET /api/v1/auth/platform-stats
 // @access  Public (authenticated)
+// Get client dashboard statistics
+exports.getClientDashboardStats = catchAsync(async (req, res, next) => {
+  if (req.user.role !== 'client') {
+    return next(new AppError('Only clients can access this endpoint', 403));
+  }
+
+  const JobPost = require('../models/jobPostModel');
+  const JobApplication = require('../models/jobApplicationModel');
+
+  const clientId = req.user._id;
+
+  // Get client's job post IDs
+  const clientJobPosts = await JobPost.find({ client: clientId }).select('_id');
+  const jobPostIds = clientJobPosts.map(job => job._id);
+
+  // Count total applications for client's jobs
+  const totalApplications = await JobApplication.countDocuments({
+    jobPost: { $in: jobPostIds }
+  });
+
+  // Count total jobs posted by client
+  const totalJobs = await JobPost.countDocuments({ client: clientId });
+
+  // Count total unlocked profiles (applications where contactUnlockedByClient is true)
+  const totalUnlockedProfiles = await JobApplication.countDocuments({
+    jobPost: { $in: jobPostIds },
+    contactUnlockedByClient: true
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      totalApplications,
+      totalJobs,
+      totalUnlockedProfiles,
+    },
+  });
+});
+
 exports.getPlatformStats = catchAsync(async (req, res, next) => {
   // Count total students
   const totalStudents = await User.countDocuments({ role: 'student', active: true });

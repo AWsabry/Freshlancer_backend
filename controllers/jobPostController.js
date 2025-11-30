@@ -130,8 +130,15 @@ exports.getAllJobPosts = catchAsync(async (req, res, next) => {
             message: 'Premium members only'
           };
         }
+
+        // Hide startup data for free plan users
+        if (jobObj.startup) {
+          jobObj.startup = {
+            message: 'Premium members only'
+          };
+        }
       }
-      // Premium users see all client data and budget (no changes needed)
+      // Premium users see all client data, budget, and startup (no changes needed)
       
       return jobObj;
     });
@@ -159,10 +166,15 @@ exports.getJobPost = catchAsync(async (req, res, next) => {
     return next(new AppError('Invalid job post ID format', 400));
   }
 
-  const jobPost = await JobPost.findById(req.params.id).populate({
-    path: 'client',
-    select: 'name email photo clientProfile',
-  });
+  const jobPost = await JobPost.findById(req.params.id)
+    .populate({
+      path: 'client',
+      select: 'name email photo clientProfile',
+    })
+    .populate({
+      path: 'startup',
+      select: 'startupName',
+    });
 
   if (!jobPost) {
     return next(new AppError('No job post found with that ID', 404));
@@ -236,6 +248,13 @@ exports.getJobPost = catchAsync(async (req, res, next) => {
       jobObj.budget = {
         message: 'Premium members only'
       };
+
+      // Hide startup data for free plan users
+      if (jobObj.startup) {
+        jobObj.startup = {
+          message: 'Premium members only'
+        };
+      }
     }
 
     return res.status(200).json({
@@ -525,6 +544,16 @@ exports.searchJobPosts = catchAsync(async (req, res, next) => {
       },
     },
     { $unwind: { path: '$client', preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: 'startups',
+        localField: 'startup',
+        foreignField: '_id',
+        as: 'startup',
+        pipeline: [{ $project: { startupName: 1 } }],
+      },
+    },
+    { $unwind: { path: '$startup', preserveNullAndEmptyArrays: true } },
   ]);
 
   const total = await JobPost.aggregate([
@@ -556,6 +585,13 @@ exports.searchJobPosts = catchAsync(async (req, res, next) => {
         // Hide budget data
         if (job.budget) {
           job.budget = {
+            message: 'Premium members only'
+          };
+        }
+
+        // Hide startup data for free plan users
+        if (job.startup) {
+          job.startup = {
             message: 'Premium members only'
           };
         }

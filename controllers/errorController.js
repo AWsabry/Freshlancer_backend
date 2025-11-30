@@ -31,25 +31,87 @@ const handleValidationErrorDB = (err) => {
   const errors = Object.values(err.errors).map((el) => {
     // Make validation messages more user-friendly
     let message = el.message;
+    const field = el.path || 'This field';
+    
+    // Convert field path to user-friendly name
+    const getFieldName = (path) => {
+      // Handle nested paths like "studentProfile.experienceLevel"
+      const parts = path.split('.');
+      const lastPart = parts[parts.length - 1];
+      
+      // Convert camelCase to Title Case with spaces
+      const friendlyName = lastPart
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase())
+        .trim();
+      
+      // Special cases for common fields
+      const fieldMap = {
+        'experienceLevel': 'Experience Level',
+        'yearsOfExperience': 'Years of Experience',
+        'hourlyRate': 'Hourly Rate',
+        'socialLinks': 'Social Links',
+        'universityLink': 'University Link',
+        'companyName': 'Company Name',
+        'companySize': 'Company Size',
+      };
+      
+      return fieldMap[friendlyName] || friendlyName;
+    };
+    
+    const fieldName = getFieldName(field);
+
+    // Handle enum validation errors
+    if (message.includes('is not a valid enum value') || message.includes('must be either')) {
+      let enumValues = [];
+      
+      // Extract enum values from error message or properties
+      if (el.properties && el.properties.enumValues) {
+        enumValues = el.properties.enumValues;
+      } else if (message.includes('must be either')) {
+        // Extract from message like "must be either: Male or Female"
+        const match = message.match(/must be either: (.+)/);
+        if (match) {
+          enumValues = match[1].split(' or ').map(v => v.trim());
+        }
+      }
+      
+      // Handle empty string values
+      if (el.value === '' || el.value === null || el.value === undefined) {
+        if (enumValues.length > 0) {
+          return `${fieldName} is required. Please select one of: ${enumValues.join(', ')}`;
+        } else {
+          return `${fieldName} is required. Please select a valid option.`;
+        }
+      }
+      
+      // Handle invalid enum values
+      if (enumValues.length > 0) {
+        return `${fieldName} must be one of: ${enumValues.join(', ')}. Please select a valid option.`;
+      } else {
+        return `${fieldName} has an invalid value. Please select a valid option.`;
+      }
+    }
 
     // Clean up mongoose validation messages
     if (message.includes('Path')) {
       message = message.replace(/Path `(\w+)` /g, '');
     }
+    
     if (message.includes('is required')) {
-      const field = el.path || 'This field';
-      const fieldName = field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
       message = `${fieldName} is required`;
     }
+    
     if (message.includes('is shorter than')) {
-      const field = el.path || 'This field';
-      const fieldName = field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
       message = `${fieldName} is too short. Please enter at least ${el.properties?.minlength || 'the required'} characters`;
     }
+    
     if (message.includes('is longer than')) {
-      const field = el.path || 'This field';
-      const fieldName = field.charAt(0).toUpperCase() + field.slice(1).replace(/([A-Z])/g, ' $1');
       message = `${fieldName} is too long. Please enter no more than ${el.properties?.maxlength || 'the allowed'} characters`;
+    }
+    
+    if (message.includes('must be valid')) {
+      message = `${fieldName} has an invalid value. Please check and try again.`;
     }
 
     return message;
@@ -85,10 +147,45 @@ const sendErrorProd = (err, res) => {
     //programming or other unknown error: don't leak error details
     //all error that throw by any other package
   } else {
-    console.error('ERROR', err);
-    res.status(500).json({
+    // Log full error details for debugging (server-side only)
+    console.error('❌ UNEXPECTED ERROR:', {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+      code: err.code,
+      statusCode: err.statusCode,
+    });
+    
+    // Provide more helpful error messages based on error type
+    let errorMessage = 'Something went wrong on our end. Please try again or contact support if the issue persists.';
+    
+    // Handle specific error types with more helpful messages
+    if (err.name === 'MongoServerError' || err.name === 'MongoError') {
+      if (err.code === 11000) {
+        // Duplicate key error - should be caught earlier, but just in case
+        errorMessage = 'This information is already registered. Please use a different one.';
+      } else if (err.code === 11001) {
+        errorMessage = 'Database error occurred. Please try again.';
+      } else {
+        errorMessage = 'Database connection error. Please try again in a moment.';
+      }
+    } else if (err.name === 'ValidationError') {
+      // Mongoose validation error - should be caught earlier
+      errorMessage = 'Invalid data provided. Please check your input and try again.';
+    } else if (err.name === 'CastError') {
+      // Invalid ID format - should be caught earlier
+      errorMessage = 'Invalid information provided. Please check and try again.';
+    } else if (err.message && err.message.includes('timeout')) {
+      errorMessage = 'Request timed out. Please try again.';
+    } else if (err.message && err.message.includes('network')) {
+      errorMessage = 'Network error occurred. Please check your connection and try again.';
+    } else if (err.message && err.message.includes('ECONNREFUSED')) {
+      errorMessage = 'Service temporarily unavailable. Please try again in a moment.';
+    }
+    
+    res.status(err.statusCode || 500).json({
       status: 'error',
-      message: 'Something went wrong on our end. Please try again or contact support if the issue persists.',
+      message: errorMessage,
     });
   }
 };
@@ -96,27 +193,66 @@ const sendErrorProd = (err, res) => {
 module.exports = (err, req, res, next) => {
   err.statusCode = err.statusCode || 500;
   err.status = err.status || 'error';
+  
+  // Log error details for debugging (in both dev and prod)
+  console.error('🔴 Error caught:', {
+    path: req.originalUrl,
+    method: req.method,
+    statusCode: err.statusCode,
+    name: err.name,
+    message: err.message,
+    isOperational: err.isOperational,
+  });
+  
   if (process.env.NODE_ENV === 'development') {
     sendErrorDev(err, res);
   } else if (process.env.NODE_ENV === 'production') {
-    let error = Object.assign(err);
+    // Create a copy of the error to avoid mutating the original
+    let error = { ...err };
+    error.message = err.message;
+    error.name = err.name;
+    error.code = err.code;
 
     //handle cast error when we try to find a document with an invalid id
-    if (error.name === 'CastError') error = handleCastErrorDB(error);
+    if (error.name === 'CastError') {
+      error = handleCastErrorDB(error);
+    }
 
     //handle duplicate fields error when we try to create a document with a field that already exist in the database
-    if (error.code === 11000) error = handleDuplicateFieldsDB(error);
+    if (error.code === 11000) {
+      error = handleDuplicateFieldsDB(error);
+    }
 
     //handle validation error when we try to create a document with invalid data
-    if (error.name === 'ValidationError')
+    if (error.name === 'ValidationError') {
       error = handleValidationErrorDB(error);
+    }
 
     //handle validation error of JWT token
-    if (error.name === 'JsonWebTokenError') error = handleJsonWebTokenError();
+    if (error.name === 'JsonWebTokenError') {
+      error = handleJsonWebTokenError();
+    }
 
     //handle expiration error of JWT token
-    if (error.name === 'TokenExpiredError') error = handleTokenExpiredError();
+    if (error.name === 'TokenExpiredError') {
+      error = handleTokenExpiredError();
+    }
+
+    // Handle Mongoose errors
+    if (error.name === 'MongoServerError' || error.name === 'MongoError') {
+      if (error.code === 11000) {
+        error = handleDuplicateFieldsDB(error);
+      }
+    }
+
+    // Handle network/connection errors
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      error = new AppError('Service temporarily unavailable. Please try again in a moment.', 503);
+    }
 
     sendErrorProd(error, res);
+  } else {
+    // Fallback for any other environment
+    sendErrorDev(err, res);
   }
 };
