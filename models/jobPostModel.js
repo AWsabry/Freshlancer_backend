@@ -77,23 +77,7 @@ const jobPostSchema = new mongoose.Schema({
   category: {
     type: String,
     required: [true, 'Please select a job category'],
-    enum: {
-      values: [
-        'Web Development',
-        'Mobile Development',
-        'Data Science',
-        'Machine Learning',
-        'UI/UX Design',
-        'Content Writing',
-        'Digital Marketing',
-        'Graphic Design',
-        'Video Editing',
-        'Translation',
-        'Research',
-        'Other',
-      ],
-      message: 'Please select a valid job category',
-    },
+    trim: true,
   },
   experienceLevel: {
     type: String,

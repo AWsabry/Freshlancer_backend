@@ -139,11 +139,12 @@ exports.upgradeToPremium = catchAsync(async (req, res, next) => {
 
   // Get currency and billing cycle from request
   const currency = req.body.currency || 'EGP';
-
   const billingCycle = req.body.billingCycle || 'monthly';
-  
+  const couponCode = req.body.couponCode; // Get coupon code from request
+
   console.log('Currency:', currency);
   console.log('Billing Cycle:', billingCycle);
+  console.log('Coupon Code:', couponCode || 'None');
 
   // Validate currency
   const supportedCurrencies = ['USD', 'EGP', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR', 'JOD', 'LBP', 'ILS', 'TRY', 'ZAR', 'MAD', 'TND', 'DZD', 'NGN', 'KES', 'GHS', 'UGX', 'TZS', 'ETB', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'HRK', 'RUB', 'UAH'];
@@ -151,9 +152,81 @@ exports.upgradeToPremium = catchAsync(async (req, res, next) => {
     return next(new AppError(`Currency ${currency} is not supported`, 400));
   }
 
-  // Get price for the selected currency
-  const premiumPrice = getPriceForCurrency(currency, billingCycle);
-  console.log('Premium Price:', premiumPrice, currency);
+  // Get original price for the selected currency
+  // Always use the base price from pricing function, ignore frontend amount if coupon is provided
+  // This ensures consistent discount calculation on the backend
+  const originalPrice = getPriceForCurrency(currency, billingCycle);
+  console.log('Original Price:', originalPrice, currency);
+  console.log('Frontend Amount (ignored if coupon provided):', req.body.amount);
+
+  // Apply coupon discount if provided
+  let premiumPrice = originalPrice;
+  let discountAmount = 0;
+  let appliedCoupon = null;
+
+  if (couponCode) {
+    console.log('🎫 Validating coupon code:', couponCode);
+    const Coupon = require('../models/couponModel');
+
+    const coupon = await Coupon.findOne({
+      couponCode: couponCode.toUpperCase().trim(),
+      isActive: true,
+      startDate: { $lte: new Date() },
+      endDate: { $gte: new Date() },
+    });
+
+    if (!coupon) {
+      console.log('❌ Invalid or expired coupon code');
+      return next(new AppError('Invalid or expired coupon code', 404));
+    }
+
+    // Check target audience
+    if (coupon.targetAudience !== 'both' && coupon.targetAudience !== 'student') {
+      console.log('❌ Coupon not available for students');
+      return next(new AppError('This coupon code is not available for students', 403));
+    }
+
+    // Check if user has already used this coupon
+    if (coupon.hasUserUsedCoupon(req.user._id)) {
+      console.log('❌ User already used this coupon');
+      return next(new AppError('You have already used this coupon code', 400));
+    }
+
+    // Check usage limit
+    if (coupon.maxUsageCount && coupon.currentUsageCount >= coupon.maxUsageCount) {
+      console.log('❌ Coupon reached usage limit');
+      return next(new AppError('This coupon code has reached its usage limit', 400));
+    }
+
+    // Apply discount
+    if (coupon.discountPercentage) {
+      discountAmount = (originalPrice * coupon.discountPercentage) / 100;
+      premiumPrice = Math.max(0, originalPrice - discountAmount);
+
+      console.log('✅ Coupon applied:', {
+        code: coupon.couponCode,
+        discount: `${coupon.discountPercentage}%`,
+        discountAmount,
+        originalPrice,
+        finalPrice: premiumPrice
+      });
+
+      appliedCoupon = {
+        id: coupon._id,
+        code: coupon.couponCode,
+        discountPercentage: coupon.discountPercentage,
+        discountAmount,
+      };
+    }
+  }
+
+  // Add processing fees (3% for EGP payments)
+  const processingFee = currency === 'EGP' ? premiumPrice * 0.03 : 0;
+  const finalAmountWithFees = premiumPrice + processingFee;
+
+  console.log('Final Premium Price:', premiumPrice, currency);
+  console.log('Processing Fee:', processingFee, currency);
+  console.log('Final Amount with Fees:', finalAmountWithFees, currency);
 
   // Create or update subscription
   if (subscription) {
@@ -205,25 +278,41 @@ exports.upgradeToPremium = catchAsync(async (req, res, next) => {
     });
   }
 
-  // Create transaction record
+  // Create transaction record with final amount (includes processing fees)
   console.log('📝 Creating transaction record');
-  const transaction = await Transaction.create({
+  const transactionData = {
     user: req.user._id,
     type: 'subscription_payment',
-    amount: premiumPrice,
+    amount: finalAmountWithFees,
     currency: currency,
     status: 'pending',
     paymentMethod: req.body.paymentMethod || 'credit_card',
-    description: `Premium subscription - ${billingCycle} billing (${currency})`,
+    description: `Premium subscription - ${billingCycle} billing (${currency})${appliedCoupon ? ` with ${appliedCoupon.discountPercentage}% discount` : ''}`,
     relatedId: subscription._id,
     relatedType: 'Subscription',
-  });
+    metadata: {},
+  };
+
+  // Add coupon information to transaction metadata if applied
+  if (appliedCoupon) {
+    transactionData.metadata.coupon = {
+      id: appliedCoupon.id,
+      code: appliedCoupon.code,
+      discountPercentage: appliedCoupon.discountPercentage,
+      discountAmount: appliedCoupon.discountAmount,
+      originalAmount: originalPrice,
+      finalAmount: premiumPrice,
+    };
+  }
+
+  const transaction = await Transaction.create(transactionData);
   console.log('✅ Transaction created:', {
     id: transaction._id,
     type: transaction.type,
     amount: transaction.amount,
     currency: transaction.currency,
-    status: transaction.status
+    status: transaction.status,
+    couponApplied: appliedCoupon ? appliedCoupon.code : 'None'
   });
 
   // If currency is EGP, use Paymob payment gateway
@@ -254,15 +343,15 @@ exports.upgradeToPremium = catchAsync(async (req, res, next) => {
       };
       console.log('Customer Data:', JSON.stringify(customer, null, 2));
 
-      // Create Paymob payment intention
+      // Create Paymob payment intention with final amount (includes discount and processing fees)
       console.log('📞 Calling Paymob API to create payment intention...');
       const paymentIntention = await paymobService.createPaymentIntention({
-        amount: premiumPrice,
+        amount: finalAmountWithFees,
         currency: 'EGP',
         items: [{
           name: 'Premium Subscription',
-          amount: premiumPrice,
-          description: `Premium subscription - ${billingCycle} billing`,
+          amount: finalAmountWithFees,
+          description: `Premium subscription - ${billingCycle} billing${appliedCoupon ? ` (with ${appliedCoupon.discountPercentage}% discount)` : ''}`,
           quantity: 1,
         }],
         billingData: req.body.billingData,
