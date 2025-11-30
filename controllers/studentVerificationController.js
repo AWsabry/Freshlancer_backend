@@ -173,6 +173,13 @@ exports.approveVerification = catchAsync(async (req, res, next) => {
 
   await verification.save();
 
+  // Update user's studentProfile verification status
+  await User.findByIdAndUpdate(verification.student._id, {
+    'studentProfile.verificationStatus': 'verified',
+    'studentProfile.isVerified': true,
+    'studentProfile.verifiedAt': Date.now(),
+  });
+
   // Create notification for student
   await Notification.create({
     user: verification.student._id,
@@ -227,6 +234,12 @@ exports.rejectVerification = catchAsync(async (req, res, next) => {
   verification.adminNotes = req.body.adminNotes;
 
   await verification.save();
+
+  // Update user's studentProfile verification status
+  await User.findByIdAndUpdate(verification.student._id, {
+    'studentProfile.verificationStatus': 'rejected',
+    'studentProfile.isVerified': false,
+  });
 
   // Create notification for student
   await Notification.create({

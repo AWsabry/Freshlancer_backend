@@ -127,6 +127,26 @@ const handleJsonWebTokenError = () =>
 const handleTokenExpiredError = () =>
   new AppError('Your session has expired. Please sign in again to continue.', 401);
 
+const handleMulterError = (err) => {
+  // Handle multer file filter errors
+  if (err.message && err.message.includes('Invalid file type')) {
+    return new AppError(err.message, 400);
+  }
+  
+  // Handle file size limit errors
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return new AppError('File size is too large. Please upload a file smaller than 10MB.', 400);
+  }
+  
+  // Handle other multer errors
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return new AppError('Unexpected file field. Please check the file upload form.', 400);
+  }
+  
+  // Generic multer error
+  return new AppError(err.message || 'File upload error. Please try again.', 400);
+};
+
 const sendErrorDev = (err, res) => {
   res.status(err.statusCode).json({
     status: err.status,
@@ -204,6 +224,11 @@ module.exports = (err, req, res, next) => {
     isOperational: err.isOperational,
   });
   
+  // Handle multer errors in all environments
+  if (err.name === 'MulterError' || err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+    err = handleMulterError(err);
+  }
+
   if (process.env.NODE_ENV === 'development') {
     sendErrorDev(err, res);
   } else if (process.env.NODE_ENV === 'production') {
@@ -236,6 +261,11 @@ module.exports = (err, req, res, next) => {
     //handle expiration error of JWT token
     if (error.name === 'TokenExpiredError') {
       error = handleTokenExpiredError();
+    }
+
+    //handle multer errors (file upload errors)
+    if (error.name === 'MulterError' || error.code === 'LIMIT_FILE_SIZE' || error.code === 'LIMIT_UNEXPECTED_FILE') {
+      error = handleMulterError(error);
     }
 
     // Handle Mongoose errors
