@@ -131,16 +131,8 @@ const userSchema = new mongoose.Schema({
 
   // Student-specific fields (only filled if role is 'student')
   studentProfile: {
-    // Skills and expertise
-    skills: [
-      {
-        name: String,
-        level: {
-          type: String,
-          enum: ['Beginner', 'Intermediate', 'Advanced', 'Expert'],
-        },
-      },
-    ],
+    // Skills and expertise (array of strings)
+    skills: [String],
 
     // University and graduation year (from registration)
     university: {

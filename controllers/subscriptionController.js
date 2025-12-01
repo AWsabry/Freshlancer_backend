@@ -578,10 +578,50 @@ exports.getAllSubscriptions = catchAsync(async (req, res, next) => {
     filter.status = req.query.status;
   }
 
+  // Date range filter (filter by createdAt or startDate)
+  if (req.query.startDate || req.query.endDate) {
+    const dateField = req.query.dateField || 'createdAt'; // Can filter by createdAt or startDate
+    filter[dateField] = {};
+    if (req.query.startDate) {
+      filter[dateField].$gte = new Date(req.query.startDate);
+    }
+    if (req.query.endDate) {
+      // Include the entire end date by setting time to end of day
+      const endDateTime = new Date(req.query.endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      filter[dateField].$lte = endDateTime;
+    }
+  }
+
   // Pagination
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
   const skip = (page - 1) * limit;
+
+  // If search is provided, use aggregation to filter by student name or email
+  if (req.query.search) {
+    const searchRegex = { $regex: req.query.search, $options: 'i' };
+    
+    // Find matching students first
+    const User = require('../models/userModel');
+    const matchingStudents = await User.find({
+      $or: [
+        { name: searchRegex },
+        { email: searchRegex },
+      ],
+      role: 'student',
+    }).select('_id');
+
+    const studentIds = matchingStudents.map(s => s._id);
+    
+    // Add student filter to subscription query
+    if (studentIds.length > 0) {
+      filter.student = { $in: studentIds };
+    } else {
+      // No matching students, return empty result
+      filter.student = { $in: [] };
+    }
+  }
 
   const [subscriptions, totalCount] = await Promise.all([
     Subscription.find(filter)

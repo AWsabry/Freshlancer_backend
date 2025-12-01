@@ -7,7 +7,7 @@ const AppError = require('../utils/AppError');
 
 // Get all users with filtering and pagination
 exports.getAllUsers = catchAsync(async (req, res, next) => {
-  const { role, page = 1, limit = 50, search, includeDeleted } = req.query;
+  const { role, page = 1, limit = 50, search, includeDeleted, startDate, endDate } = req.query;
 
   // Build query
   const query = {};
@@ -25,6 +25,20 @@ exports.getAllUsers = catchAsync(async (req, res, next) => {
       { name: { $regex: search, $options: 'i' } },
       { email: { $regex: search, $options: 'i' } },
     ];
+  }
+
+  // Date range filter (filter by createdAt)
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) {
+      query.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      // Include the entire end date by setting time to end of day
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      query.createdAt.$lte = endDateTime;
+    }
   }
 
   const skip = (page - 1) * limit;
@@ -70,7 +84,7 @@ exports.getUserById = catchAsync(async (req, res, next) => {
 
 // Get all jobs with full details (admin view)
 exports.getAllJobs = catchAsync(async (req, res, next) => {
-  const { status, page = 1, limit = 50, search, category, clientId } = req.query;
+  const { status, page = 1, limit = 50, search, category, clientId, startDate, endDate } = req.query;
 
   // Build query
   const query = {};
@@ -88,6 +102,20 @@ exports.getAllJobs = catchAsync(async (req, res, next) => {
       { title: { $regex: search, $options: 'i' } },
       { description: { $regex: search, $options: 'i' } },
     ];
+  }
+
+  // Date range filter (filter by createdAt)
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) {
+      query.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      // Include the entire end date by setting time to end of day
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      query.createdAt.$lte = endDateTime;
+    }
   }
 
   const skip = (page - 1) * limit;
@@ -129,7 +157,7 @@ exports.getAllJobs = catchAsync(async (req, res, next) => {
 
 // Get all applications with full details (admin view)
 exports.getAllApplications = catchAsync(async (req, res, next) => {
-  const { status, page = 1, limit = 50, studentId, clientId, jobId } = req.query;
+  const { status, page = 1, limit = 50, studentId, clientId, jobId, startDate, endDate } = req.query;
 
   // Build query
   const query = {};
@@ -141,6 +169,20 @@ exports.getAllApplications = catchAsync(async (req, res, next) => {
   }
   if (jobId) {
     query.jobPost = jobId;
+  }
+
+  // Date range filter (filter by createdAt)
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) {
+      query.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      // Include the entire end date by setting time to end of day
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      query.createdAt.$lte = endDateTime;
+    }
   }
 
   const skip = (page - 1) * limit;
