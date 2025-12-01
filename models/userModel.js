@@ -102,6 +102,12 @@ const userSchema = new mongoose.Schema({
       message: 'nationality must have between 2 and 50 characters',
     },
   },
+  country: {
+    type: String,
+    required: false,
+    trim: true,
+    maxlength: [100, 'country must have less or equal to 100 characters'],
+  },
 
   // Location and Contact Information
   phone: {

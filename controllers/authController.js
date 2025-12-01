@@ -86,7 +86,7 @@ exports.signup = catchAsync(async (req, res, next) => {
     profileCompletionPercentage: 20, // Basic info filled = 20%
   };
 
-  // For students, phone and nationality are required
+  // For students, phone, nationality, gender, and experienceLevel are required
   if (req.body.role === 'student') {
     if (!req.body.phone) {
       return next(new AppError('Phone number is required for student registration', 400));
@@ -94,16 +94,38 @@ exports.signup = catchAsync(async (req, res, next) => {
     if (!req.body.nationality) {
       return next(new AppError('Nationality is required for student registration', 400));
     }
+    if (!req.body.gender) {
+      return next(new AppError('Gender is required for student registration', 400));
+    }
     userData.phone = req.body.phone;
     userData.nationality = req.body.nationality;
+    userData.gender = req.body.gender;
     
-    // Store country of study in location.country if provided
-    if (req.body.location && req.body.location.country) {
+    // Store country of study in country field (from countryOfStudy or country)
+    if (req.body.countryOfStudy) {
+      userData.country = req.body.countryOfStudy;
+    } else if (req.body.country) {
+      userData.country = req.body.country;
+    }
+    
+    // Also store in location.country for backward compatibility
+    if (userData.country) {
+      userData.location = {
+        country: userData.country,
+      };
+    } else if (req.body.location && req.body.location.country) {
       userData.location = {
         country: req.body.location.country,
       };
+      userData.country = req.body.location.country;
     }
-  } else {
+  } else if (req.body.role === 'client') {
+    // For clients, country is required
+    if (!req.body.country) {
+      return next(new AppError('Country is required for client registration', 400));
+    }
+    userData.country = req.body.country;
+    
     // For other roles, these are optional
     if (req.body.phone) {
       userData.phone = req.body.phone;
@@ -111,9 +133,32 @@ exports.signup = catchAsync(async (req, res, next) => {
     if (req.body.nationality) {
       userData.nationality = req.body.nationality;
     }
+    // For clients, location is optional
+    if (req.body.location) {
+      userData.location = req.body.location;
+    } else if (userData.country) {
+      userData.location = {
+        country: userData.country,
+      };
+    }
+  } else {
+    // For other roles (admin), these are optional
+    if (req.body.phone) {
+      userData.phone = req.body.phone;
+    }
+    if (req.body.nationality) {
+      userData.nationality = req.body.nationality;
+    }
+    if (req.body.country) {
+      userData.country = req.body.country;
+    }
     // For other roles, location is optional
     if (req.body.location) {
       userData.location = req.body.location;
+    } else if (userData.country) {
+      userData.location = {
+        country: userData.country,
+      };
     }
   }
 
@@ -137,8 +182,9 @@ exports.signup = catchAsync(async (req, res, next) => {
     };
 
     // Set currency based on country of study if provided
-    if (userData.location && userData.location.country) {
-      const currency = getCurrencyByCountry(userData.location.country);
+    const countryForCurrency = userData.country || (userData.location && userData.location.country);
+    if (countryForCurrency) {
+      const currency = getCurrencyByCountry(countryForCurrency);
       userData.studentProfile.hourlyRate = {
         currency: currency,
       };
@@ -158,8 +204,16 @@ exports.signup = catchAsync(async (req, res, next) => {
           userData.studentProfile.graduationYear = gradYear;
         }
       }
+      // Experience level is required for students
       if (req.body.studentProfile.experienceLevel !== undefined && req.body.studentProfile.experienceLevel !== null && req.body.studentProfile.experienceLevel !== '') {
         userData.studentProfile.experienceLevel = req.body.studentProfile.experienceLevel;
+      } else {
+        // If not provided in studentProfile, check if it's in the request body directly
+        if (req.body.experienceLevel) {
+          userData.studentProfile.experienceLevel = req.body.experienceLevel;
+        } else {
+          return next(new AppError('Experience level is required for student registration', 400));
+        }
       }
       // If hourlyRate is provided in request, merge it (but keep currency from country if set)
       if (req.body.studentProfile.hourlyRate) {
@@ -797,11 +851,15 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   if (req.user.role === 'client' && req.body.clientProfile) {
     const cp = req.body.clientProfile;
 
-    // Company name
-    if (cp.companyName !== undefined) updateData['clientProfile.companyName'] = cp.companyName;
+    // Company name - convert empty strings to null
+    if (cp.companyName !== undefined) {
+      updateData['clientProfile.companyName'] = cp.companyName === '' ? null : cp.companyName;
+    }
 
-    // Industry
-    if (cp.industry !== undefined) updateData['clientProfile.industry'] = cp.industry;
+    // Industry - convert empty strings to null
+    if (cp.industry !== undefined) {
+      updateData['clientProfile.industry'] = cp.industry === '' ? null : cp.industry;
+    }
 
     // Company size
     if (cp.companySize !== undefined) updateData['clientProfile.companySize'] = cp.companySize;
@@ -816,21 +874,40 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     if (cp.socialLinks !== undefined) {
       if (typeof cp.socialLinks === 'object' && !Array.isArray(cp.socialLinks)) {
         // If individual fields are provided, update them individually
-        if (cp.socialLinks.linkedin !== undefined) updateData['clientProfile.socialLinks.linkedin'] = cp.socialLinks.linkedin;
-        if (cp.socialLinks.website !== undefined) updateData['clientProfile.socialLinks.website'] = cp.socialLinks.website;
-        if (cp.socialLinks.telegram !== undefined) updateData['clientProfile.socialLinks.telegram'] = cp.socialLinks.telegram;
-        if (cp.socialLinks.whatsapp !== undefined) updateData['clientProfile.socialLinks.whatsapp'] = cp.socialLinks.whatsapp;
+        // Convert empty strings to null to clear the field
+        if (cp.socialLinks.linkedin !== undefined) {
+          updateData['clientProfile.socialLinks.linkedin'] = cp.socialLinks.linkedin === '' ? null : cp.socialLinks.linkedin;
+        }
+        if (cp.socialLinks.website !== undefined) {
+          updateData['clientProfile.socialLinks.website'] = cp.socialLinks.website === '' ? null : cp.socialLinks.website;
+        }
+        if (cp.socialLinks.telegram !== undefined) {
+          updateData['clientProfile.socialLinks.telegram'] = cp.socialLinks.telegram === '' ? null : cp.socialLinks.telegram;
+        }
+        if (cp.socialLinks.whatsapp !== undefined) {
+          updateData['clientProfile.socialLinks.whatsapp'] = cp.socialLinks.whatsapp === '' ? null : cp.socialLinks.whatsapp;
+        }
       } else {
-        // If entire object is provided, replace it
-        updateData['clientProfile.socialLinks'] = cp.socialLinks;
+        // If entire object is provided, clean it up (convert empty strings to null)
+        const cleanedSocialLinks = {};
+        if (cp.socialLinks && typeof cp.socialLinks === 'object') {
+          Object.keys(cp.socialLinks).forEach(key => {
+            cleanedSocialLinks[key] = cp.socialLinks[key] === '' ? null : cp.socialLinks[key];
+          });
+        }
+        updateData['clientProfile.socialLinks'] = cleanedSocialLinks;
       }
     }
   }
 
   // Support direct clientProfile fields for backwards compatibility
   if (req.user.role === 'client') {
-    if (req.body.companyName !== undefined) updateData['clientProfile.companyName'] = req.body.companyName;
-    if (req.body.industry !== undefined) updateData['clientProfile.industry'] = req.body.industry;
+    if (req.body.companyName !== undefined) {
+      updateData['clientProfile.companyName'] = req.body.companyName === '' ? null : req.body.companyName;
+    }
+    if (req.body.industry !== undefined) {
+      updateData['clientProfile.industry'] = req.body.industry === '' ? null : req.body.industry;
+    }
   }
 
   // 4) Update user document
@@ -854,14 +931,33 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       }
     });
 
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      { $set: setData },
-      {
-        new: true,
-        runValidators: true,
+    // For partial updates, we need to be careful with validation
+    // Load the user first to preserve existing data
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return next(new AppError('User not found', 404));
+    }
+
+    // Apply updates to the user object
+    Object.keys(setData).forEach(key => {
+      if (key.includes('.')) {
+        // Handle nested fields
+        const parts = key.split('.');
+        let current = user;
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!current[parts[i]]) {
+            current[parts[i]] = {};
+          }
+          current = current[parts[i]];
+        }
+        current[parts[parts.length - 1]] = setData[key];
+      } else {
+        user[key] = setData[key];
       }
-    );
+    });
+
+    // Save with validation - but only validate modified paths
+    const updatedUser = await user.save({ validateModifiedOnly: false });
 
     if (!updatedUser) {
       return next(new AppError('User not found', 404));
