@@ -411,18 +411,43 @@ exports.getApplication = catchAsync(async (req, res, next) => {
   if (req.user.role === 'client') {
     const appObj = application.toObject();
     
+    // Get subscriptionTier before potentially hiding student data
+    let subscriptionTier = appObj.student?.studentProfile?.subscriptionTier;
+    
+    // Fallback: If subscriptionTier is missing, check Subscription model
+    if (!subscriptionTier && appObj.student?._id) {
+      const Subscription = require('../models/subscriptionModel');
+      const subscription = await Subscription.findOne({
+        student: appObj.student._id,
+        status: 'active',
+        plan: 'premium'
+      });
+      subscriptionTier = subscription ? 'premium' : 'free';
+    }
+    
     // Check if student contact is unlocked
     if (!appObj.contactUnlockedByClient) {
-      // Student is locked - hide all student data
+      // Student is locked - hide all student data but keep subscriptionTier for premium badge
       appObj.student = {
-        message: 'Student is Locked'
+        message: 'Student is Locked',
+        studentProfile: subscriptionTier ? { subscriptionTier } : undefined
       };
     } else {
-      // If unlocked, remove password and appliedJobs from student data
+      // If unlocked, remove password and appliedJobs from student data but keep subscriptionTier
       if (appObj.student) {
         delete appObj.student.password;
-        if (appObj.student.studentProfile && appObj.student.studentProfile.appliedJobs) {
-          delete appObj.student.studentProfile.appliedJobs;
+        if (appObj.student.studentProfile) {
+          // Ensure subscriptionTier is set (use fallback if missing)
+          if (!appObj.student.studentProfile.subscriptionTier && subscriptionTier) {
+            appObj.student.studentProfile.subscriptionTier = subscriptionTier;
+          }
+          // Remove sensitive fields but keep the rest
+          if (appObj.student.studentProfile.appliedJobs) {
+            delete appObj.student.studentProfile.appliedJobs;
+          }
+        } else if (subscriptionTier) {
+          // If studentProfile doesn't exist but we have subscriptionTier, create it
+          appObj.student.studentProfile = { subscriptionTier };
         }
       }
     }
@@ -954,12 +979,37 @@ exports.unlockStudentContact = catchAsync(async (req, res, next) => {
     },
   ]);
 
-  // Remove password and appliedJobs from student data
+  // Remove password and appliedJobs from student data, but preserve subscriptionTier
   const appObj = application.toObject();
+  
+  // Ensure subscriptionTier is preserved
+  let subscriptionTier = appObj.student?.studentProfile?.subscriptionTier;
+  
+  // Fallback: If subscriptionTier is missing, check Subscription model
+  if (!subscriptionTier && appObj.student?._id) {
+    const Subscription = require('../models/subscriptionModel');
+    const subscription = await Subscription.findOne({
+      student: appObj.student._id,
+      status: 'active',
+      plan: 'premium'
+    });
+    subscriptionTier = subscription ? 'premium' : 'free';
+  }
+  
   if (appObj.student) {
     delete appObj.student.password;
-    if (appObj.student.studentProfile && appObj.student.studentProfile.appliedJobs) {
-      delete appObj.student.studentProfile.appliedJobs;
+    if (appObj.student.studentProfile) {
+      // Ensure subscriptionTier is set (use fallback if missing)
+      if (!appObj.student.studentProfile.subscriptionTier && subscriptionTier) {
+        appObj.student.studentProfile.subscriptionTier = subscriptionTier;
+      }
+      // Remove sensitive fields but keep the rest
+      if (appObj.student.studentProfile.appliedJobs) {
+        delete appObj.student.studentProfile.appliedJobs;
+      }
+    } else if (subscriptionTier) {
+      // If studentProfile doesn't exist but we have subscriptionTier, create it
+      appObj.student.studentProfile = { subscriptionTier };
     }
   }
 
@@ -1069,11 +1119,36 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   // Execute aggregation
   let applications = await JobApplication.aggregate(pipeline);
 
+  // Get all student IDs to check subscription status if subscriptionTier is missing
+  const studentIds = [...new Set(applications.map(app => app.student?._id).filter(Boolean))];
+  const Subscription = require('../models/subscriptionModel');
+  const activeSubscriptions = await Subscription.find({
+    student: { $in: studentIds },
+    status: 'active',
+    plan: 'premium'
+  }).select('student plan');
+  
+  // Create a map of student IDs to premium status
+  const premiumStudentMap = new Map();
+  activeSubscriptions.forEach(sub => {
+    premiumStudentMap.set(sub.student.toString(), true);
+  });
+
   // Hide student data for applications that are not unlocked, but keep subscriptionTier for premium badge
   applications = applications.map((app) => {
     // Check if student contact is unlocked
     // contactUnlockedByClient defaults to false, so check explicitly
-    const subscriptionTier = app.student?.studentProfile?.subscriptionTier;
+    let subscriptionTier = app.student?.studentProfile?.subscriptionTier;
+    
+    // Fallback: If subscriptionTier is missing, check Subscription model
+    if (!subscriptionTier && app.student?._id) {
+      const studentId = app.student._id.toString();
+      if (premiumStudentMap.has(studentId)) {
+        subscriptionTier = 'premium';
+      } else {
+        subscriptionTier = 'free';
+      }
+    }
     
     if (!app.contactUnlockedByClient || app.contactUnlockedByClient === false) {
       // Student is locked - hide all student data but keep subscriptionTier for premium badge
@@ -1082,14 +1157,22 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
         studentProfile: subscriptionTier ? { subscriptionTier } : undefined
       };
     } else {
-      // If unlocked, remove password and sensitive data but keep subscriptionTier
+      // If unlocked, remove password and sensitive data but keep all studentProfile data including subscriptionTier
       if (app.student) {
         delete app.student.password;
         if (app.student.studentProfile) {
-          // Keep only subscriptionTier, remove everything else
-          app.student.studentProfile = {
-            subscriptionTier: app.student.studentProfile.subscriptionTier
-          };
+          // Ensure subscriptionTier is set (use fallback if missing)
+          if (!app.student.studentProfile.subscriptionTier && subscriptionTier) {
+            app.student.studentProfile.subscriptionTier = subscriptionTier;
+          }
+          // Remove sensitive fields but keep the rest of studentProfile
+          delete app.student.studentProfile.appliedJobs;
+          delete app.student.studentProfile.resume;
+          delete app.student.studentProfile.verificationDocuments;
+          delete app.student.studentProfile.additionalDocuments;
+        } else if (subscriptionTier) {
+          // If studentProfile doesn't exist but we have subscriptionTier, create it
+          app.student.studentProfile = { subscriptionTier };
         }
       }
     }
