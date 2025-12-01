@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 const adminController = require('../controllers/adminController');
+const analyticsController = require('../controllers/analyticsController');
 
 // Protect all routes and restrict to admin only
 router.use(authController.protect);
@@ -9,6 +10,9 @@ router.use(authController.restrictTo('admin'));
 
 // Dashboard stats
 router.get('/stats', adminController.getDashboardStats);
+
+// Analytics
+router.get('/analytics', analyticsController.getAnalytics);
 
 // Package management routes
 router.route('/packages')

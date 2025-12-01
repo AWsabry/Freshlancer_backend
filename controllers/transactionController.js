@@ -58,10 +58,44 @@ exports.getAllTransactions = catchAsync(async (req, res, next) => {
   if (req.query.user) filter.user = req.query.user;
   
   // Filter by role if specified
+  let roleFilter = {};
   if (req.query.role) {
-    const users = await User.find({ role: req.query.role }).select('_id');
+    roleFilter.role = req.query.role;
+  }
+
+  // If search is provided, find matching users by name or email
+  if (req.query.search) {
+    const searchRegex = { $regex: req.query.search, $options: 'i' };
+    roleFilter.$or = [
+      { name: searchRegex },
+      { email: searchRegex },
+    ];
+  }
+
+  // Apply role and search filters
+  if (Object.keys(roleFilter).length > 0) {
+    const users = await User.find(roleFilter).select('_id');
     const userIds = users.map(u => u._id);
-    filter.user = { $in: userIds };
+    if (userIds.length > 0) {
+      filter.user = { $in: userIds };
+    } else {
+      // No matching users, return empty result
+      filter.user = { $in: [] };
+    }
+  }
+
+  // Date range filter (filter by createdAt)
+  if (req.query.startDate || req.query.endDate) {
+    filter.createdAt = {};
+    if (req.query.startDate) {
+      filter.createdAt.$gte = new Date(req.query.startDate);
+    }
+    if (req.query.endDate) {
+      // Include the entire end date by setting time to end of day
+      const endDateTime = new Date(req.query.endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      filter.createdAt.$lte = endDateTime;
+    }
   }
 
   const page = parseInt(req.query.page, 10) || 1;

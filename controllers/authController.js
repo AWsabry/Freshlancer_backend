@@ -158,6 +158,9 @@ exports.signup = catchAsync(async (req, res, next) => {
           userData.studentProfile.graduationYear = gradYear;
         }
       }
+      if (req.body.studentProfile.experienceLevel !== undefined && req.body.studentProfile.experienceLevel !== null && req.body.studentProfile.experienceLevel !== '') {
+        userData.studentProfile.experienceLevel = req.body.studentProfile.experienceLevel;
+      }
       // If hourlyRate is provided in request, merge it (but keep currency from country if set)
       if (req.body.studentProfile.hourlyRate) {
         if (!userData.studentProfile.hourlyRate) {

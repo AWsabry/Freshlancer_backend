@@ -36,8 +36,12 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     );
   }
 
-  // Check if job post exists and is open
-  const jobPost = await JobPost.findById(req.params.jobId);
+  // Check if job post exists and is open - populate client for email notification
+  const jobPost = await JobPost.findById(req.params.jobId).populate({
+    path: 'client',
+    select: 'name email',
+  });
+  
   if (!jobPost) {
     return next(new AppError('Job post not found', 404));
   }
@@ -46,6 +50,11 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     return next(
       new AppError('This job post is no longer accepting applications', 400)
     );
+  }
+
+  // Validate jobPost has required fields
+  if (!jobPost.client) {
+    return next(new AppError('Job post client information is missing', 500));
   }
 
   // Check if student has already applied (including ALL statuses: pending, accepted, rejected, withdrawn)
@@ -116,6 +125,19 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     );
   }
 
+  // Validate required fields before creating application
+  if (!req.body.proposedBudget || !req.body.proposedBudget.amount) {
+    return next(new AppError('Proposed budget is required', 400));
+  }
+
+  if (!req.body.estimatedDuration) {
+    return next(new AppError('Estimated duration is required', 400));
+  }
+
+  if (!req.body.availabilityCommitment) {
+    return next(new AppError('Availability commitment is required', 400));
+  }
+
   // Create the application
   const applicationData = {
     ...req.body,
@@ -123,7 +145,20 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     student: userId,
   };
 
-  const application = await JobApplication.create(applicationData);
+  let application;
+  try {
+    application = await JobApplication.create(applicationData);
+  } catch (error) {
+    // Handle validation errors and duplicate key errors
+    if (error.name === 'ValidationError') {
+      return next(new AppError(`Validation error: ${error.message}`, 400));
+    }
+    if (error.code === 11000) {
+      return next(new AppError('You have already applied for this job', 400));
+    }
+    // Re-throw unexpected errors
+    throw error;
+  }
 
   // Increment monthly application usage and add job to appliedJobs list
   student.studentProfile.applicationsUsedThisMonth = applicationsUsed + 1;
@@ -166,22 +201,25 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     { new: true }
   );
 
-  // Send notification email to client
-  try {
-    await sendEmail({
-      type: 'job-application',
-      email: jobPost.client.email,
-      name: jobPost.client.name,
-      subject: `New Application for "${jobPost.title}"`,
-      message: `You have received a new application for your job post "${jobPost.title}" from ${req.user.name}.`,
-      jobTitle: jobPost.title,
-      studentName: req.user.name,
-      applicationUrl: `${req.protocol}://${req.get('host')}/applications/${
-        application._id
-      }`,
-    });
-  } catch (err) {
-    console.log('Failed to send application notification email:', err.message);
+  // Send notification email to client (only if client email exists)
+  if (jobPost.client && jobPost.client.email) {
+    try {
+      await sendEmail({
+        type: 'job-application',
+        email: jobPost.client.email,
+        name: jobPost.client.name || 'Client',
+        subject: `New Application for "${jobPost.title}"`,
+        message: `You have received a new application for your job post "${jobPost.title}" from ${req.user.name}.`,
+        jobTitle: jobPost.title,
+        studentName: req.user.name,
+        applicationUrl: `${req.protocol}://${req.get('host')}/applications/${
+          application._id
+        }`,
+      });
+    } catch (err) {
+      // Log error but don't fail the application submission
+      console.error('Failed to send application notification email:', err.message);
+    }
   }
 
   res.status(201).json({
@@ -998,11 +1036,15 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     pipeline.push({ $match: matchStage });
   }
 
-  // Exclude password and studentProfile from student data (after filtering)
+  // Exclude password but keep subscriptionTier for premium badge display
   pipeline.push({
     $project: {
       'student.password': 0,
-      'student.studentProfile': 0,
+      'student.studentProfile.appliedJobs': 0,
+      'student.studentProfile.resume': 0,
+      'student.studentProfile.verificationDocuments': 0,
+      'student.studentProfile.additionalDocuments': 0,
+      // Keep subscriptionTier to show premium badge
     },
   });
 
@@ -1027,20 +1069,28 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   // Execute aggregation
   let applications = await JobApplication.aggregate(pipeline);
 
-  // Hide student data for applications that are not unlocked, and exclude password/appliedJobs/studentProfile for unlocked ones
+  // Hide student data for applications that are not unlocked, but keep subscriptionTier for premium badge
   applications = applications.map((app) => {
     // Check if student contact is unlocked
     // contactUnlockedByClient defaults to false, so check explicitly
+    const subscriptionTier = app.student?.studentProfile?.subscriptionTier;
+    
     if (!app.contactUnlockedByClient || app.contactUnlockedByClient === false) {
-      // Student is locked - hide all student data
+      // Student is locked - hide all student data but keep subscriptionTier for premium badge
       app.student = {
-        message: 'Student is Locked'
+        message: 'Student is Locked',
+        studentProfile: subscriptionTier ? { subscriptionTier } : undefined
       };
     } else {
-      // If unlocked, remove password, appliedJobs, and entire studentProfile from student data
+      // If unlocked, remove password and sensitive data but keep subscriptionTier
       if (app.student) {
         delete app.student.password;
-        delete app.student.studentProfile;
+        if (app.student.studentProfile) {
+          // Keep only subscriptionTier, remove everything else
+          app.student.studentProfile = {
+            subscriptionTier: app.student.studentProfile.subscriptionTier
+          };
+        }
       }
     }
     return app;
