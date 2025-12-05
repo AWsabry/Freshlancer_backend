@@ -26,11 +26,22 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   // Check verification status
   const isVerified = student.studentProfile?.isVerified || false;
   const verificationStatus = student.studentProfile?.verificationStatus || 'unverified';
+  const allowJobApplications = student.studentProfile?.allowJobApplications !== false; // Default to true if not set
 
   if (!isVerified || verificationStatus !== 'verified') {
     return next(
       new AppError(
         'You must be verified to apply for jobs. Please submit your verification documents from your profile page.',
+        403
+      )
+    );
+  }
+
+  // Check if student has enabled job applications
+  if (!allowJobApplications) {
+    return next(
+      new AppError(
+        'You have disabled job applications. Please enable job applications in your profile settings to apply for jobs.',
         403
       )
     );

@@ -845,6 +845,11 @@ exports.updateMe = catchAsync(async (req, res, next) => {
 
     // Resume
     if (sp.resume !== undefined) updateData['studentProfile.resume'] = sp.resume;
+
+    // Job application preference
+    if (sp.allowJobApplications !== undefined) {
+      updateData['studentProfile.allowJobApplications'] = sp.allowJobApplications;
+    }
   }
 
   // Client profile fields (only for clients)

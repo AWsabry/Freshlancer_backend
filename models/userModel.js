@@ -172,7 +172,7 @@ const userSchema = new mongoose.Schema({
     // Experience and rates
     experienceLevel: {
       type: String,
-      required: [true, 'Experience level is required'],
+      required: [false,],
       enum: ['Beginner', 'Intermediate', 'Advanced', 'Expert'],
     },
     yearsOfExperience: {
@@ -279,6 +279,12 @@ const userSchema = new mongoose.Schema({
     },
     verificationSubmittedAt: Date,
     verificationApprovedAt: Date,
+
+    // Job application preference
+    allowJobApplications: {
+      type: Boolean,
+      default: true, // Verified students can apply for jobs by default
+    },
 
     // Intro video
     introVideo: {
