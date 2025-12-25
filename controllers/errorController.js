@@ -229,6 +229,17 @@ module.exports = (err, req, res, next) => {
     err = handleMulterError(err);
   }
 
+  // Handle JWT errors in all environments (must be before environment check)
+  //handle validation error of JWT token
+  if (err.name === 'JsonWebTokenError') {
+    err = handleJsonWebTokenError();
+  }
+
+  //handle expiration error of JWT token
+  if (err.name === 'TokenExpiredError') {
+    err = handleTokenExpiredError();
+  }
+
   if (process.env.NODE_ENV === 'development') {
     sendErrorDev(err, res);
   } else if (process.env.NODE_ENV === 'production') {
@@ -251,16 +262,6 @@ module.exports = (err, req, res, next) => {
     //handle validation error when we try to create a document with invalid data
     if (error.name === 'ValidationError') {
       error = handleValidationErrorDB(error);
-    }
-
-    //handle validation error of JWT token
-    if (error.name === 'JsonWebTokenError') {
-      error = handleJsonWebTokenError();
-    }
-
-    //handle expiration error of JWT token
-    if (error.name === 'TokenExpiredError') {
-      error = handleTokenExpiredError();
     }
 
     //handle multer errors (file upload errors)

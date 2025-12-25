@@ -547,6 +547,7 @@ userSchema.pre('save', function (next) {
   next();
 });
 
+
 //check if the password is the same as enc or not
 userSchema.methods.checkPassword = async (encPass, userPass) =>
   await bcrypt.compare(encPass, userPass);

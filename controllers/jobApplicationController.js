@@ -16,17 +16,31 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   const userId = req.user._id || req.user.id;
 
   // Check if student is verified
-  const User = require('../models/userModel');
   const student = await User.findById(userId);
 
   if (!student) {
     return next(new AppError('Student not found', 404));
   }
 
-  // Check verification status
-  const isVerified = student.studentProfile?.isVerified || false;
-  const verificationStatus = student.studentProfile?.verificationStatus || 'unverified';
-  const allowJobApplications = student.studentProfile?.allowJobApplications !== false; // Default to true if not set
+  // Ensure studentProfile exists (initialize if it doesn't)
+  if (!student.studentProfile) {
+    student.studentProfile = {};
+  }
+
+  // Check verification status - use strict boolean check
+  const isVerified = student.studentProfile.isVerified === true;
+  const verificationStatus = student.studentProfile.verificationStatus || 'unverified';
+  const allowJobApplications = student.studentProfile.allowJobApplications !== false; // Default to true if not set
+
+  // Debug logging (can be removed in production)
+  console.log('Verification check:', {
+    userId: userId.toString(),
+    isVerified,
+    verificationStatus,
+    isVerifiedType: typeof student.studentProfile.isVerified,
+    verificationStatusValue: student.studentProfile.verificationStatus,
+    studentProfileExists: !!student.studentProfile,
+  });
 
   if (!isVerified || verificationStatus !== 'verified') {
     return next(
@@ -172,26 +186,40 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   }
 
   // Increment monthly application usage and add job to appliedJobs list
+  // Ensure studentProfile exists
+  if (!student.studentProfile) {
+    student.studentProfile = {};
+  }
+  
   student.studentProfile.applicationsUsedThisMonth = applicationsUsed + 1;
 
   // Add job to appliedJobs list if not already there
-  const alreadyInList = student.studentProfile.appliedJobs?.some(
+  if (!student.studentProfile.appliedJobs) {
+    student.studentProfile.appliedJobs = [];
+  }
+  
+  const alreadyInList = student.studentProfile.appliedJobs.some(
     (job) => job.jobId.toString() === req.params.jobId
   );
 
   if (!alreadyInList) {
-    if (!student.studentProfile.appliedJobs) {
-      student.studentProfile.appliedJobs = [];
-    }
     student.studentProfile.appliedJobs.push({
       jobId: req.params.jobId,
       title: jobPost.title,
       appliedAt: Date.now(),
       status: 'pending',
+      applicationId: application._id.toString(), // Store application ID for reference
     });
   }
 
-  await student.save({ validateBeforeSave: false });
+  // Save student with error handling
+  try {
+    await student.save({ validateBeforeSave: false });
+  } catch (saveError) {
+    console.error('Error saving student after application:', saveError);
+    // If save fails, we should still return the application but log the error
+    // The application was created successfully, so we continue
+  }
 
   // Also update the subscription model to keep it in sync
   const Subscription = require('../models/subscriptionModel');
@@ -215,14 +243,18 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   // Send notification email to client (only if client email exists)
   if (jobPost.client && jobPost.client.email) {
     try {
+      // Determine if student is premium (has active subscription)
+      const isPremium = subscription && subscription.status === 'active';
+      const studentLabel = isPremium ? 'premium student' : 'student';
+      
       await sendEmail({
         type: 'job-application',
         email: jobPost.client.email,
         name: jobPost.client.name || 'Client',
         subject: `New Application for "${jobPost.title}"`,
-        message: `You have received a new application for your job post "${jobPost.title}" from ${req.user.name}.`,
+        message: `You have received a new application for your job post "${jobPost.title}" from a ${studentLabel}.`,
         jobTitle: jobPost.title,
-        studentName: req.user.name,
+        studentName: studentLabel,
         applicationUrl: `${req.protocol}://${req.get('host')}/applications/${
           application._id
         }`,
@@ -571,7 +603,29 @@ exports.updateApplicationStatus = catchAsync(async (req, res, next) => {
     req.params.id,
     updateData,
     { new: true, runValidators: true }
-  );
+  ).populate('student', 'studentProfile');
+
+  // Update student's appliedJobs list status
+  if (updatedApplication && updatedApplication.student) {
+    const student = await User.findById(updatedApplication.student._id);
+    if (student && student.studentProfile && student.studentProfile.appliedJobs) {
+      const jobIndex = student.studentProfile.appliedJobs.findIndex(
+        (job) => job.jobId.toString() === application.jobPost._id.toString()
+      );
+      
+      if (jobIndex !== -1) {
+        student.studentProfile.appliedJobs[jobIndex].status = status;
+        if (status === 'accepted') {
+          student.studentProfile.appliedJobs[jobIndex].acceptedAt = Date.now();
+        }
+        try {
+          await student.save({ validateBeforeSave: false });
+        } catch (saveError) {
+          console.error('Error updating student appliedJobs status:', saveError);
+        }
+      }
+    }
+  }
 
   // If accepted, update job post status to in-progress
   if (status === 'accepted') {
@@ -638,6 +692,50 @@ exports.acceptApplication = catchAsync(async (req, res, next) => {
   application.acceptedAt = Date.now();
   await application.save();
 
+  // Update student's appliedJobs list status
+  const student = await User.findById(application.student._id);
+  if (student && student.studentProfile && student.studentProfile.appliedJobs) {
+    const jobIndex = student.studentProfile.appliedJobs.findIndex(
+      (job) => job.jobId.toString() === application.jobPost._id.toString()
+    );
+    
+    if (jobIndex !== -1) {
+      student.studentProfile.appliedJobs[jobIndex].status = 'accepted';
+      student.studentProfile.appliedJobs[jobIndex].acceptedAt = Date.now();
+      try {
+        await student.save({ validateBeforeSave: false });
+      } catch (saveError) {
+        console.error('Error updating student appliedJobs status on accept:', saveError);
+      }
+    }
+  }
+
+  // Update job post status to in-progress
+  await JobPost.findByIdAndUpdate(application.jobPost._id, {
+    status: 'in-progress',
+  });
+
+  // Send notification email to student
+  try {
+    const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+    await sendEmail({
+      type: 'application-status-update',
+      email: application.student.email,
+      name: application.student.name,
+      subject: `Application Accepted for "${application.jobPost.title}"`,
+      message: `Your application for "${application.jobPost.title}" has been accepted.`,
+      jobTitle: application.jobPost.title,
+      newStatus: 'accepted',
+      feedback: null,
+      dashboardUrl: `${frontendUrl}/student/applications/${application._id}`,
+    });
+  } catch (err) {
+    console.log(
+      'Failed to send acceptance notification email:',
+      err.message
+    );
+  }
+
   // Create notification for student
   const Notification = require('../models/notificationModel');
   await Notification.create({
@@ -693,6 +791,27 @@ exports.rejectApplication = catchAsync(async (req, res, next) => {
     application.rejectionReason = reason;
   }
   await application.save();
+
+  // Update student's appliedJobs list status
+  const student = await User.findById(application.student._id);
+  if (student && student.studentProfile && student.studentProfile.appliedJobs) {
+    const jobIndex = student.studentProfile.appliedJobs.findIndex(
+      (job) => job.jobId.toString() === application.jobPost._id.toString()
+    );
+    
+    if (jobIndex !== -1) {
+      student.studentProfile.appliedJobs[jobIndex].status = 'rejected';
+      student.studentProfile.appliedJobs[jobIndex].rejectedAt = Date.now();
+      if (reason) {
+        student.studentProfile.appliedJobs[jobIndex].rejectionReason = reason;
+      }
+      try {
+        await student.save({ validateBeforeSave: false });
+      } catch (saveError) {
+        console.error('Error updating student appliedJobs status on reject:', saveError);
+      }
+    }
+  }
 
   // Create notification for student
   const Notification = require('../models/notificationModel');

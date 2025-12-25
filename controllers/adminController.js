@@ -500,8 +500,8 @@ exports.getStudentsWithVerification = catchAsync(async (req, res, next) => {
 
   // Get students
   const students = await User.find(filter)
-    .select('name email photo studentProfile createdAt')
-    .sort('-createdAt')
+    .select('name email photo studentProfile joinedAt')
+    .sort('-joinedAt')
     .skip(skip)
     .limit(limit);
 

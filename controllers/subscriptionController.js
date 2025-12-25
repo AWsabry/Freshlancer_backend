@@ -682,11 +682,12 @@ exports.getSubscriptionPricing = catchAsync(async (req, res, next) => {
   let userCurrency = 'USD'; // Default
 
   // If user is logged in (optional), try to get currency from their profile
+  // Country is stored in user.country, NOT in location.country
   if (req.user && req.user.id) {
     try {
       const user = await User.findById(req.user.id);
-      if (user && user.location && user.location.country) {
-        userCurrency = getCurrencyByCountry(user.location.country);
+      if (user && user.country) {
+        userCurrency = getCurrencyByCountry(user.country);
       }
     } catch (error) {
       // If user lookup fails, continue with default currency
