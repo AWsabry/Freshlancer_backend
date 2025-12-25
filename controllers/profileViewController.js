@@ -105,8 +105,8 @@ exports.getStudentProfile = catchAsync(async (req, res, next) => {
 
   const { studentId } = req.params;
 
-  // Get the student
-  const student = await User.findById(studentId);
+  // Get the student with all fields (including nested studentProfile)
+  const student = await User.findById(studentId).lean();
 
   if (!student || student.role !== 'student') {
     return next(new AppError('Student not found', 404));
@@ -127,7 +127,8 @@ exports.getStudentProfile = catchAsync(async (req, res, next) => {
     return next(new AppError('You must unlock this student\'s contact through an application first', 403));
   }
 
-  // Return full student profile
+  // Return full student profile with all nested fields
+  // Using lean() already returns a plain object, so all nested fields are included
   res.status(200).json({
     status: 'success',
     data: {
@@ -139,9 +140,11 @@ exports.getStudentProfile = catchAsync(async (req, res, next) => {
         age: student.age,
         gender: student.gender,
         nationality: student.nationality,
+        country: student.country,
         phone: student.phone,
         location: student.location,
-        studentProfile: student.studentProfile,
+        studentProfile: student.studentProfile || {},
+        joinedAt: student.joinedAt,
         createdAt: student.createdAt,
       },
     },
@@ -357,7 +360,7 @@ exports.getUnlockedStudents = catchAsync(async (req, res, next) => {
   // Get client with unlocked students
   const client = await User.findById(req.user._id).populate({
     path: 'clientProfile.unlockedStudents',
-    select: 'name email phone photo age gender nationality location studentProfile createdAt',
+    select: 'name email phone photo age gender nationality country location studentProfile joinedAt emailVerified createdAt',
   });
 
   if (!client) {
@@ -366,12 +369,21 @@ exports.getUnlockedStudents = catchAsync(async (req, res, next) => {
 
   const unlockedStudents = client.clientProfile?.unlockedStudents || [];
   
+  // Map students to include verification status from studentProfile
+  const studentsWithVerification = unlockedStudents.map(student => {
+    const studentObj = student.toObject ? student.toObject() : student;
+    return {
+      ...studentObj,
+      isVerified: studentObj.studentProfile?.isVerified || false,
+      verificationStatus: studentObj.studentProfile?.verificationStatus || 'unverified',
+    };
+  });
 
   res.status(200).json({
     status: 'success',
-    results: unlockedStudents.length,
+    results: studentsWithVerification.length,
     data: {
-      students: unlockedStudents,
+      students: studentsWithVerification,
     },
   });
 });

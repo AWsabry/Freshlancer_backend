@@ -102,29 +102,28 @@ exports.signup = catchAsync(async (req, res, next) => {
     userData.gender = req.body.gender;
     
     // Store country of study in country field (from countryOfStudy or country)
+    // Country is stored directly in user.country, NOT in location.country
     if (req.body.countryOfStudy) {
       userData.country = req.body.countryOfStudy;
     } else if (req.body.country) {
       userData.country = req.body.country;
     }
     
-    // Also store in location.country for backward compatibility
-    if (userData.country) {
+    // Location only contains city (and future fields like zip, lat, long)
+    // Country is stored separately in user.country
+    if (req.body.location && req.body.location.city) {
       userData.location = {
-        country: userData.country,
+        city: req.body.location.city,
       };
-    } else if (req.body.location && req.body.location.country) {
-      userData.location = {
-        country: req.body.location.country,
-      };
-      userData.country = req.body.location.country;
+      if (req.body.location.timezone) {
+        userData.location.timezone = req.body.location.timezone;
+      }
     }
   } else if (req.body.role === 'client') {
-    // For clients, country is required
-    if (!req.body.country) {
-      return next(new AppError('Country is required for client registration', 400));
+    // For clients, country is optional
+    if (req.body.country && typeof req.body.country === 'string' && req.body.country.trim() !== '') {
+      userData.country = req.body.country.trim();
     }
-    userData.country = req.body.country;
     
     // For other roles, these are optional
     if (req.body.phone) {
@@ -133,13 +132,15 @@ exports.signup = catchAsync(async (req, res, next) => {
     if (req.body.nationality) {
       userData.nationality = req.body.nationality;
     }
-    // For clients, location is optional
-    if (req.body.location) {
-      userData.location = req.body.location;
-    } else if (userData.country) {
+    // For clients, location is optional (only city, not country)
+    // Country is stored separately in user.country
+    if (req.body.location && req.body.location.city) {
       userData.location = {
-        country: userData.country,
+        city: req.body.location.city,
       };
+      if (req.body.location.timezone) {
+        userData.location.timezone = req.body.location.timezone;
+      }
     }
   } else {
     // For other roles (admin), these are optional
@@ -152,13 +153,15 @@ exports.signup = catchAsync(async (req, res, next) => {
     if (req.body.country) {
       userData.country = req.body.country;
     }
-    // For other roles, location is optional
-    if (req.body.location) {
-      userData.location = req.body.location;
-    } else if (userData.country) {
+    // For other roles, location is optional (only city, not country)
+    // Country is stored separately in user.country
+    if (req.body.location && req.body.location.city) {
       userData.location = {
-        country: userData.country,
+        city: req.body.location.city,
       };
+      if (req.body.location.timezone) {
+        userData.location.timezone = req.body.location.timezone;
+      }
     }
   }
 
@@ -182,9 +185,9 @@ exports.signup = catchAsync(async (req, res, next) => {
     };
 
     // Set currency based on country of study if provided
-    const countryForCurrency = userData.country || (userData.location && userData.location.country);
-    if (countryForCurrency) {
-      const currency = getCurrencyByCountry(countryForCurrency);
+    // Country is stored in user.country, NOT in location.country
+    if (userData.country) {
+      const currency = getCurrencyByCountry(userData.country);
       userData.studentProfile.hourlyRate = {
         currency: currency,
       };
@@ -632,20 +635,18 @@ exports.verifyEmail = catchAsync(async (req, res, next) => {
     .createHash('sha256')
     .update(req.params.token)
     .digest('hex');
-  //get user thats matches the token and expires date greater than now
+  
+  //get user that matches the token and expires date greater than now
   const user = await User.findOne({
     emailVerificationToken: hashedToken,
     emailVerificationExpires: { $gt: Date.now() },
   });
 
-  //2)if there is user and token dose not expires verify the email
+  const frontendURL = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+  //2)if there is user and token does not expire, verify the email
   if (!user) {
-    const frontendURL = process.env.FRONTEND_URL || 'http://localhost:3000';
-    // If request is from browser (has Accept: text/html), redirect to frontend
-    if (req.headers.accept && req.headers.accept.includes('text/html')) {
-      return res.redirect(`${frontendURL}/verify-email/error?message=Token is invalid or has expired. Your email may already be verified.`);
-    }
-    // Otherwise return JSON response
+    // Return JSON response - frontend will handle the display
     return res.status(400).json({
       status: 'error',
       message:
@@ -653,20 +654,26 @@ exports.verifyEmail = catchAsync(async (req, res, next) => {
     });
   }
 
+  //3) Set emailVerified to true and clear verification token
   user.emailVerified = true;
   user.emailVerificationToken = undefined;
   user.emailVerificationExpires = undefined;
-  await user.save();
+  await user.save({ validateBeforeSave: false });
 
-  const frontendURL = process.env.FRONTEND_URL || 'http://localhost:3000';
-  // If request is from browser (has Accept: text/html), redirect to frontend
-  if (req.headers.accept && req.headers.accept.includes('text/html')) {
-    return res.redirect(`${frontendURL}/verify-email/success?message=Email verified successfully! You can now log in.`);
-  }
-  // Otherwise return JSON response
+  //4) Return success response with user data
+  // Frontend will handle the redirect/display
   res.status(200).json({
     status: 'success',
     message: 'Email verified successfully! You can now log in.',
+    data: {
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        role: user.role,
+      },
+    },
   });
 });
 
@@ -778,13 +785,15 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     updateData.gender = req.body.gender === '' ? undefined : req.body.gender;
   }
 
-  // Location fields - country cannot be changed, only city and timezone
+  // Location fields - only city and timezone (country is stored in user.country, not location.country)
+  // Country cannot be changed after registration
   if (req.body.location) {
     updateData.location = {};
-    // Country is restricted and cannot be changed after registration
     // Only allow city and timezone to be updated
+    // Country is stored in user.country, not in location
     if (req.body.location.city !== undefined) updateData.location.city = req.body.location.city;
     if (req.body.location.timezone !== undefined) updateData.location.timezone = req.body.location.timezone;
+    // Explicitly do NOT update location.country - country is in user.country
   }
 
   // Student profile fields (only for students)
@@ -1079,6 +1088,53 @@ exports.deleteResume = catchAsync(async (req, res, next) => {
     message: 'Resume deleted successfully',
     data: {
       user: updatedUser,
+    },
+  });
+});
+
+// Upload profile photo
+exports.uploadPhoto = catchAsync(async (req, res, next) => {
+  if (!req.file) {
+    return next(new AppError('Please upload a photo', 400));
+  }
+
+  // Get the file path (relative to server root for storage)
+  const filePath = `/uploads/photos/${req.file.filename}`;
+
+  // Delete old photo if it exists and is not the default photo
+  const user = await User.findById(req.user.id);
+  if (user.photo && !user.photo.includes('firebasestorage') && !user.photo.includes('default.jpg')) {
+    const fs = require('fs');
+    const path = require('path');
+    const oldPhotoPath = path.join(__dirname, '..', user.photo);
+    if (fs.existsSync(oldPhotoPath)) {
+      try {
+        fs.unlinkSync(oldPhotoPath);
+      } catch (error) {
+        console.error('Error deleting old photo:', error);
+        // Continue even if old photo deletion fails
+      }
+    }
+  }
+
+  // Update user's photo
+  const updatedUser = await User.findByIdAndUpdate(
+    req.user.id,
+    {
+      photo: filePath,
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Photo uploaded successfully',
+    data: {
+      user: updatedUser,
+      photo: updatedUser.photo,
     },
   });
 });

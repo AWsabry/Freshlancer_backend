@@ -168,8 +168,10 @@ profileViewSchema.statics.getAnonymizedProfile = function (studentProfile) {
     name: 'Anonymous Student',
     email: null,
     phone: null,
-    location: studentProfile.location
-      ? { country: studentProfile.location.country, city: null }
+    location: studentProfile.location && studentProfile.location.city
+      ? { country: studentProfile.country || null, city: studentProfile.location.city }
+      : studentProfile.country
+      ? { country: studentProfile.country, city: null }
       : null,
   };
 };

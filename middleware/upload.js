@@ -15,6 +15,7 @@ ensureUploadDir('uploads/resumes');
 ensureUploadDir('uploads/verification-documents');
 ensureUploadDir('uploads/additional-documents');
 ensureUploadDir('uploads/startup-logos');
+ensureUploadDir('uploads/photos');
 
 // Configure multer storage for resumes
 const resumeStorage = multer.diskStorage({
@@ -63,6 +64,18 @@ const startupLogoStorage = multer.diskStorage({
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
     cb(null, `logo-${req.user.id}-${uniqueSuffix}${ext}`);
+  },
+});
+
+// Configure multer storage for user photos
+const photoStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/photos');
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `photo-${req.user.id}-${uniqueSuffix}${ext}`);
   },
 });
 
@@ -156,6 +169,29 @@ const startupLogoFileFilter = (req, file, cb) => {
   }
 };
 
+// File filter for user photos - images only
+const photoFileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+  ];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(
+      new AppError(
+        'Invalid file type. Only JPG, PNG, GIF, and WEBP images are allowed.',
+        400
+      ),
+      false
+    );
+  }
+};
+
 // Create multer upload instance for resumes
 const uploadResume = multer({
   storage: resumeStorage,
@@ -192,9 +228,19 @@ const uploadStartupLogo = multer({
   },
 });
 
+// Create multer upload instance for user photos
+const uploadPhoto = multer({
+  storage: photoStorage,
+  fileFilter: photoFileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB max file size
+  },
+});
+
 module.exports = {
   uploadResume,
   uploadVerificationDocument,
   uploadAdditionalDocument,
   uploadStartupLogo,
+  uploadPhoto,
 };
