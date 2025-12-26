@@ -2,12 +2,14 @@ const { promisify } = require('util');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const validator = require('validator');
-const User = require('../models/userModel');
-const AppError = require('../utils/AppError');
-const sendEmail = require('../utils/email');
-const { getCurrencyByCountry } = require('../utils/currencyRates');
+const User = require('../../models/userModel');
+const AppError = require('../../utils/AppError');
+const sendEmail = require('../../utils/email');
+const { getFrontendUrl, handleEmailError } = require('../../utils/helpers');
+const logger = require('../../utils/logger');
+const { prepareUserData, createStartupForUser, sendVerificationEmail } = require('./authHelpers');
 
-const catchAsync = require('../utils/catchAsync');
+const catchAsync = require('../../utils/catchAsync');
 
 //function to generate token using id of user
 const signToken = (id) =>
@@ -67,278 +69,27 @@ const createSendToken = (user, status, req, res, message = null) => {
 
 exports.signup = catchAsync(async (req, res, next) => {
   // Check if email already exists
-  let user = await User.find({ email: req.body.email });
-  if (user.length > 0) {
+  const existingUser = await User.findOne({ email: req.body.email });
+  if (existingUser) {
     return next(new AppError('This email address is already registered. Please sign in or use a different email.', 400));
   }
 
+  // Prepare user data based on role
+  const userData = prepareUserData(req, next);
+  if (!userData) return; // Error already handled in prepareUserData
 
-  // Prepare user data with enhanced profile initialization
-  const userData = {
-    name: req.body.name,
-    email: req.body.email,
-    password: req.body.password,
-    passwordConfirm: req.body.passwordConfirm,
-    passwordChangedAt: req.body.passwordChangedAt,
-    role: req.body.role,
-    emailVerified: false, // Email verification required - will be verified via email
-    accountCreatedSource: 'Web', // Track how account was created
-    profileCompletionPercentage: 20, // Basic info filled = 20%
-  };
-
-  // For students, phone, nationality, gender, and experienceLevel are required
-  if (req.body.role === 'student') {
-    if (!req.body.phone) {
-      return next(new AppError('Phone number is required for student registration', 400));
-    }
-    if (!req.body.nationality) {
-      return next(new AppError('Nationality is required for student registration', 400));
-    }
-    if (!req.body.gender) {
-      return next(new AppError('Gender is required for student registration', 400));
-    }
-    userData.phone = req.body.phone;
-    userData.nationality = req.body.nationality;
-    userData.gender = req.body.gender;
-    
-    // Store country of study in country field (from countryOfStudy or country)
-    // Country is stored directly in user.country, NOT in location.country
-    if (req.body.countryOfStudy) {
-      userData.country = req.body.countryOfStudy;
-    } else if (req.body.country) {
-      userData.country = req.body.country;
-    }
-    
-    // Location only contains city (and future fields like zip, lat, long)
-    // Country is stored separately in user.country
-    if (req.body.location && req.body.location.city) {
-      userData.location = {
-        city: req.body.location.city,
-      };
-      if (req.body.location.timezone) {
-        userData.location.timezone = req.body.location.timezone;
-      }
-    }
-  } else if (req.body.role === 'client') {
-    // For clients, country is optional
-    if (req.body.country && typeof req.body.country === 'string' && req.body.country.trim() !== '') {
-      userData.country = req.body.country.trim();
-    }
-    
-    // For other roles, these are optional
-    if (req.body.phone) {
-      userData.phone = req.body.phone;
-    }
-    if (req.body.nationality) {
-      userData.nationality = req.body.nationality;
-    }
-    // For clients, location is optional (only city, not country)
-    // Country is stored separately in user.country
-    if (req.body.location && req.body.location.city) {
-      userData.location = {
-        city: req.body.location.city,
-      };
-      if (req.body.location.timezone) {
-        userData.location.timezone = req.body.location.timezone;
-      }
-    }
-  } else {
-    // For other roles (admin), these are optional
-    if (req.body.phone) {
-      userData.phone = req.body.phone;
-    }
-    if (req.body.nationality) {
-      userData.nationality = req.body.nationality;
-    }
-    if (req.body.country) {
-      userData.country = req.body.country;
-    }
-    // For other roles, location is optional (only city, not country)
-    // Country is stored separately in user.country
-    if (req.body.location && req.body.location.city) {
-      userData.location = {
-        city: req.body.location.city,
-      };
-      if (req.body.location.timezone) {
-        userData.location.timezone = req.body.location.timezone;
-      }
-    }
-  }
-
-  // Add optional fields only if provided
-  if (req.body.age !== undefined && req.body.age !== null) {
-    userData.age = req.body.age;
-  }
-  if (req.body.gender) {
-    userData.gender = req.body.gender;
-  }
-
-  // Initialize role-specific profile objects
-  if (req.body.role === 'student') {
-    userData.studentProfile = {
-      skills: [],
-      portfolio: [],
-      socialLinks: {},
-      languages: [],
-      certifications: [],
-      availability: 'Available',
-    };
-
-    // Set currency based on country of study if provided
-    // Country is stored in user.country, NOT in location.country
-    if (userData.country) {
-      const currency = getCurrencyByCountry(userData.country);
-      userData.studentProfile.hourlyRate = {
-        currency: currency,
-      };
-    }
-
-    // Add student profile data from registration form if provided
-    if (req.body.studentProfile) {
-      if (req.body.studentProfile.university !== undefined && req.body.studentProfile.university !== null && req.body.studentProfile.university !== '') {
-        userData.studentProfile.university = req.body.studentProfile.university.trim();
-      }
-      if (req.body.studentProfile.major !== undefined && req.body.studentProfile.major !== null && req.body.studentProfile.major !== '') {
-        userData.studentProfile.major = req.body.studentProfile.major.trim();
-      }
-      if (req.body.studentProfile.graduationYear !== undefined && req.body.studentProfile.graduationYear !== null && req.body.studentProfile.graduationYear !== '') {
-        const gradYear = parseInt(req.body.studentProfile.graduationYear);
-        if (!isNaN(gradYear) && gradYear > 1900 && gradYear <= 2034) {
-          userData.studentProfile.graduationYear = gradYear;
-        } else if (gradYear > 2034) {
-          return next(new AppError('Graduation year must not exceed 2034', 400));
-        }
-      }
-      // Experience level is required for students
-      if (req.body.studentProfile.experienceLevel !== undefined && req.body.studentProfile.experienceLevel !== null && req.body.studentProfile.experienceLevel !== '') {
-        userData.studentProfile.experienceLevel = req.body.studentProfile.experienceLevel;
-      } else {
-        // If not provided in studentProfile, check if it's in the request body directly
-        if (req.body.experienceLevel) {
-          userData.studentProfile.experienceLevel = req.body.experienceLevel;
-        } else {
-          return next(new AppError('Experience level is required for student registration', 400));
-        }
-      }
-      // If hourlyRate is provided in request, merge it (but keep currency from country if set)
-      if (req.body.studentProfile.hourlyRate) {
-        if (!userData.studentProfile.hourlyRate) {
-          userData.studentProfile.hourlyRate = {};
-        }
-        if (req.body.studentProfile.hourlyRate.min !== undefined) {
-          userData.studentProfile.hourlyRate.min = req.body.studentProfile.hourlyRate.min;
-        }
-        if (req.body.studentProfile.hourlyRate.max !== undefined) {
-          userData.studentProfile.hourlyRate.max = req.body.studentProfile.hourlyRate.max;
-        }
-        // Only set currency from request if country-based currency wasn't set
-        if (req.body.studentProfile.hourlyRate.currency && !userData.studentProfile.hourlyRate.currency) {
-          userData.studentProfile.hourlyRate.currency = req.body.studentProfile.hourlyRate.currency;
-        }
-      }
-    }
-  } else if (req.body.role === 'client') {
-    userData.clientProfile = {
-      paymentMethods: [],
-      isVerified: false,
-    };
-
-    // Add client profile data from registration form if provided
-    if (req.body.clientProfile) {
-      if (req.body.clientProfile.companyName) {
-        userData.clientProfile.companyName = req.body.clientProfile.companyName;
-      }
-      if (req.body.clientProfile.industry) {
-        userData.clientProfile.industry = req.body.clientProfile.industry;
-      }
-      if (req.body.clientProfile.isStartup !== undefined) {
-        userData.clientProfile.isStartup = req.body.clientProfile.isStartup;
-      }
-      if (req.body.clientProfile.yearsOfExperience !== undefined) {
-        userData.clientProfile.yearsOfExperience = parseInt(req.body.clientProfile.yearsOfExperience);
-      }
-      if (req.body.clientProfile.howDidYouHear) {
-        userData.clientProfile.howDidYouHear = req.body.clientProfile.howDidYouHear;
-      }
-    }
-    
-    // Add age if provided (at root level)
-    if (req.body.age !== undefined) {
-      userData.age = parseInt(req.body.age);
-    }
-
-    // Create startup if provided during registration
-    if (req.body.startup && req.body.clientProfile?.isStartup) {
-      const Startup = require('../models/startupModel');
-      const startupData = {
-        client: null, // Will be set after user is created
-        startupName: req.body.startup.startupName,
-        position: req.body.startup.position,
-        numberOfEmployees: req.body.startup.numberOfEmployees,
-        industry: req.body.startup.industry,
-        stage: req.body.startup.stage,
-      };
-      if (req.body.startup.industryOther) {
-        startupData.industryOther = req.body.startup.industryOther;
-      }
-      // Store startup data to create after user is created
-      userData._startupData = startupData;
-    }
-  }
-
+  // Create user
   const newUser = await User.create(userData);
 
-  // Create startup if startup data was provided
+  // Create startup if needed
   if (newUser.clientProfile?.isStartup && userData._startupData) {
-    const Startup = require('../models/startupModel');
-    userData._startupData.client = newUser._id;
-    await Startup.create(userData._startupData);
+    await createStartupForUser(newUser, userData._startupData);
     delete userData._startupData; // Clean up
   }
-  
-  // Generate email verification token
-  const verificationToken = newUser.createEmailVerificationToken();
-  await newUser.save({ validateBeforeSave: false });
 
   // Send verification email
-  try {
-    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
-    const verificationURL = `${frontendUrl}/verify-email/${verificationToken}`;
-
-    // Get user role specific subject and message
-    const welcomeMessage =
-      newUser.role === 'student'
-        ? 'Welcome to FreeStudent - Start Your Freelancing Journey!'
-        : 'Welcome to FreeStudent - Find Amazing Student Talent!';
-
-    await sendEmail({
-      type: 'welcome',
-      email: newUser.email,
-      name: newUser.name,
-      userRole: newUser.role,
-      subject: welcomeMessage,
-      verificationUrl: verificationURL,
-      message: `Welcome to FreeStudent! Please verify your email address to get started.`,
-    });
-
-    // Send token and user data along with verification email confirmation
-    createSendToken(newUser, 201, req, res, 'Registration successful! Please check your email to verify your account.');
-  } catch (err) {
-    // Log the error for debugging
-    console.error('Error sending verification email during signup:', {
-      error: err.message,
-      stack: err.stack,
-      userId: newUser._id,
-    });
-    
-    // If email sending fails, remove the token but still allow registration
-    newUser.emailVerificationToken = undefined;
-    newUser.emailVerificationExpires = undefined;
-    await newUser.save({ validateBeforeSave: false });
-
-    // Still send token but with warning message
-    createSendToken(newUser, 201, req, res, 'Registration successful! However, we could not send the verification email. Please use the resend verification email feature.');
-  }
+  const emailResult = await sendVerificationEmail(newUser, req, res, next);
+  createSendToken(newUser, 201, req, res, emailResult.message);
 });
 
 exports.login = catchAsync(async (req, res, next) => {
@@ -355,7 +106,8 @@ exports.login = catchAsync(async (req, res, next) => {
   }
 
   // Find user by email only (email is unique, name is not)
-  const user = await User.findOne({ email: email.toLowerCase().trim() }).select('+password');
+  const user = await User.findOne({ email: email.toLowerCase().trim() })
+    .select('+password +emailVerified +active +suspended +suspensionReason');
   
   // Check if user exists
   if (!user) {
@@ -432,7 +184,8 @@ exports.protect = catchAsync(async (req, res, next) => {
   const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
 
   //3)check if user still exist
-  const currentUser = await User.findById(decoded.id);
+  const currentUser = await User.findById(decoded.id)
+    .select('+active +suspended +suspensionReason +passwordChangedAt +emailVerified');
   if (!currentUser) return next(new AppError('Your account no longer exists. Please contact support if you believe this is an error.', 401));
 
   //3.5)check if user account is deleted
@@ -471,6 +224,35 @@ exports.restrictTo =
     next();
   };
 
+// Require email verification middleware
+// This should be used after protect middleware
+// Blocks access if email is not verified
+exports.requireEmailVerification = catchAsync(async (req, res, next) => {
+  // Check if user is authenticated (should be set by protect middleware)
+  if (!req.user) {
+    return next(new AppError('Authentication required', 401));
+  }
+
+  // Check if email is verified
+  if (!req.user.emailVerified) {
+    const frontendUrl = getFrontendUrl();
+    return res.status(403).json({
+      status: 'error',
+      message: 'Please verify your email address to access this page.',
+      errorCode: 'EMAIL_NOT_VERIFIED',
+      data: {
+        email: req.user.email,
+        requiresVerification: true,
+        resendEmailUrl: '/api/v1/auth/resendVerificationEmail',
+        verificationPageUrl: `${frontendUrl}/verify-email`,
+      },
+    });
+  }
+
+  // Email is verified, proceed
+  next();
+});
+
 exports.forgotPassword = catchAsync(async (req, res, next) => {
   //1)get user  from posted email
   const user = await User.findOne({ email: req.body.email });
@@ -483,8 +265,7 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    // Use FRONTEND_URL if available, otherwise use production or development domain
-    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+    const frontendUrl = getFrontendUrl();
     const resetURL = `${frontendUrl}/reset-password/${resetToken}`;
 
     await sendEmail({
@@ -532,42 +313,20 @@ exports.sendVerificationEmail = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+    const frontendUrl = getFrontendUrl();
     const verificationURL = `${frontendUrl}/verify-email/${verificationToken}`;
-
-    // Get user role specific subject and message
-    const welcomeMessage =
-      user.role === 'student'
-        ? 'Welcome to FreeStudent - Start Your Freelancing Journey!'
-        : 'Welcome to FreeStudent - Find Amazing Student Talent!';
 
     await sendEmail({
       type: 'welcome',
       email: user.email,
       name: user.name,
       userRole: user.role,
-      subject: welcomeMessage,
       verificationUrl: verificationURL,
-      message: `Welcome to FreeStudent! Please verify your email address to get started.`,
     });
 
-    // Send token and user data along with verification email confirmation
     createSendToken(user, 200, req, res, 'Registration successful! Verification email sent.');
   } catch (err) {
-    // Log the error for debugging
-    console.error('Error sending verification email (sendVerificationEmail):', {
-      error: err.message,
-      stack: err.stack,
-      userId: user._id,
-    });
-    
-    user.emailVerificationToken = undefined;
-    user.emailVerificationExpires = undefined;
-    await user.save({ validateBeforeSave: false });
-
-    return next(
-      new AppError('There was an error sending the email. Try again later!', 500)
-    );
+    return handleEmailError(user, err, req, res, next);
   }
 });
 
@@ -598,7 +357,7 @@ exports.resendVerificationEmail = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+    const frontendUrl = getFrontendUrl();
     const verificationURL = `${frontendUrl}/verify-email/${verificationToken}`;
 
     await sendEmail({
@@ -606,9 +365,7 @@ exports.resendVerificationEmail = catchAsync(async (req, res, next) => {
       email: user.email,
       name: user.name,
       userRole: user.role,
-      subject: 'FreeStudent - New Email Verification Link',
       verificationUrl: verificationURL,
-      message: `Here is your new verification link for your FreeStudent account.`,
     });
 
     res.status(200).json({
@@ -616,20 +373,7 @@ exports.resendVerificationEmail = catchAsync(async (req, res, next) => {
       message: 'New verification email sent! Please check your inbox.',
     });
   } catch (err) {
-    // Log the error for debugging
-    console.error('Error sending verification email (resendVerificationEmail):', {
-      error: err.message,
-      stack: err.stack,
-      userId: user._id,
-    });
-    
-    user.emailVerificationToken = undefined;
-    user.emailVerificationExpires = undefined;
-    await user.save({ validateBeforeSave: false });
-
-    return next(
-      new AppError('There was an error sending the email. Try again later!', 500)
-    );
+    return handleEmailError(user, err, req, res, next);
   }
 });
 
@@ -647,7 +391,7 @@ exports.verifyEmail = catchAsync(async (req, res, next) => {
     emailVerificationExpires: { $gt: Date.now() },
   });
 
-  const frontendURL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+  const frontendURL = getFrontendUrl();
 
   //2)if there is user and token does not expire, verify the email
   if (!user) {
@@ -1007,7 +751,7 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     }
     
     // Log unexpected errors
-    console.error('Error updating profile:', {
+    logger.error('Error updating profile:', {
       error: error.message,
       stack: error.stack,
       userId: req.user.id,
@@ -1032,13 +776,17 @@ exports.uploadResume = catchAsync(async (req, res, next) => {
 
   // Check if student is verified - only verified students can upload resumes
   const student = await User.findById(req.user.id);
-  const isVerified = student.studentProfile?.isVerified === true;
-  const verificationStatus = student.studentProfile?.verificationStatus || 'unverified';
   
-  if (!isVerified || verificationStatus !== 'verified') {
+  // Validate user exists
+  if (!student) {
+    return next(new AppError('User not found', 404));
+  }
+
+  // Simple check: only require email verification
+  if (!student.emailVerified) {
     return next(
       new AppError(
-        'You must be verified to upload a resume. Please complete your student verification first.',
+        'You must verify your email to upload a resume. Please verify your email first.',
         403
       )
     );
@@ -1063,6 +811,11 @@ exports.uploadResume = catchAsync(async (req, res, next) => {
     }
   );
 
+  // Validate update was successful
+  if (!updatedUser) {
+    return next(new AppError('Failed to update resume', 500));
+  }
+
   res.status(200).json({
     status: 'success',
     message: 'Resume uploaded successfully',
@@ -1081,18 +834,18 @@ exports.deleteResume = catchAsync(async (req, res, next) => {
 
   const user = await User.findById(req.user.id);
 
+  // Validate user exists
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
   if (!user.studentProfile?.resume?.url) {
     return next(new AppError('No resume found to delete', 404));
   }
 
-  // Delete the file from filesystem
-  const fs = require('fs');
-  const path = require('path');
-  const filePath = path.join(__dirname, '..', user.studentProfile.resume.url);
-
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
+  // Delete the file from filesystem using safe async deletion
+  const { safeDeleteFile } = require('../../utils/helpers');
+  await safeDeleteFile(user.studentProfile.resume.url);
 
   // Update user's student profile to remove resume
   const updatedUser = await User.findByIdAndUpdate(
@@ -1106,6 +859,11 @@ exports.deleteResume = catchAsync(async (req, res, next) => {
     }
   );
 
+  // Validate update was successful
+  if (!updatedUser) {
+    return next(new AppError('Failed to delete resume', 500));
+  }
+
   res.status(200).json({
     status: 'success',
     message: 'Resume deleted successfully',
@@ -1117,32 +875,58 @@ exports.deleteResume = catchAsync(async (req, res, next) => {
 
 // Upload profile photo
 exports.uploadPhoto = catchAsync(async (req, res, next) => {
+  console.log('📸 Photo upload request received');
+  console.log('File:', req.file ? {
+    filename: req.file.filename,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size,
+  } : 'No file');
+  console.log('User:', req.user ? {
+    id: req.user.id,
+    _id: req.user._id,
+    email: req.user.email,
+  } : 'No user');
+
   if (!req.file) {
+    console.error('❌ No file in request');
     return next(new AppError('Please upload a photo', 400));
+  }
+
+  // Validate user authentication
+  if (!req.user || (!req.user.id && !req.user._id)) {
+    console.error('❌ User authentication failed');
+    return next(new AppError('User authentication required', 401));
   }
 
   // Get the file path (relative to server root for storage)
   const filePath = `/uploads/photos/${req.file.filename}`;
+  console.log('📁 File path:', filePath);
 
   // Delete old photo if it exists and is not the default photo
-  const user = await User.findById(req.user.id);
+  // Use _id if available, otherwise use id (Mongoose documents have both)
+  const userId = req.user._id ? req.user._id.toString() : req.user.id;
+  console.log('👤 User ID:', userId);
+  const user = await User.findById(userId);
+  
+  // Validate user exists
+  if (!user) {
+    console.error('❌ User not found:', userId);
+    return next(new AppError('User not found', 404));
+  }
+
+  console.log('✅ User found:', user.email);
+
   if (user.photo && !user.photo.includes('firebasestorage') && !user.photo.includes('default.jpg')) {
-    const fs = require('fs');
-    const path = require('path');
-    const oldPhotoPath = path.join(__dirname, '..', user.photo);
-    if (fs.existsSync(oldPhotoPath)) {
-      try {
-        fs.unlinkSync(oldPhotoPath);
-      } catch (error) {
-        console.error('Error deleting old photo:', error);
-        // Continue even if old photo deletion fails
-      }
-    }
+    console.log('🗑️ Deleting old photo:', user.photo);
+    const { safeDeleteFile } = require('../../utils/helpers');
+    await safeDeleteFile(user.photo);
   }
 
   // Update user's photo
+  console.log('💾 Updating user photo...');
   const updatedUser = await User.findByIdAndUpdate(
-    req.user.id,
+    userId,
     {
       photo: filePath,
     },
@@ -1151,6 +935,14 @@ exports.uploadPhoto = catchAsync(async (req, res, next) => {
       runValidators: true,
     }
   );
+
+  // Validate update was successful
+  if (!updatedUser) {
+    console.error('❌ Failed to update user photo');
+    return next(new AppError('Failed to update user photo', 500));
+  }
+
+  console.log('✅ Photo uploaded successfully:', filePath);
 
   res.status(200).json({
     status: 'success',
@@ -1175,13 +967,17 @@ exports.uploadAdditionalDocument = catchAsync(async (req, res, next) => {
 
   // Check if student is verified - only verified students can upload additional documents
   const student = await User.findById(req.user.id);
-  const isVerified = student.studentProfile?.isVerified === true;
-  const verificationStatus = student.studentProfile?.verificationStatus || 'unverified';
   
-  if (!isVerified || verificationStatus !== 'verified') {
+  // Validate user exists
+  if (!student) {
+    return next(new AppError('User not found', 404));
+  }
+
+  // Simple check: only require email verification
+  if (!student.emailVerified) {
     return next(
       new AppError(
-        'You must be verified to upload additional documents. Please complete your student verification first.',
+        'You must verify your email to upload additional documents. Please verify your email first.',
         403
       )
     );
@@ -1240,6 +1036,11 @@ exports.deleteAdditionalDocument = catchAsync(async (req, res, next) => {
 
   const user = await User.findById(req.user.id);
 
+  // Validate user exists
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
   if (!user.studentProfile?.additionalDocuments || !Array.isArray(user.studentProfile.additionalDocuments)) {
     return next(new AppError('No additional documents found', 404));
   }
@@ -1250,14 +1051,9 @@ exports.deleteAdditionalDocument = catchAsync(async (req, res, next) => {
 
   const documentToDelete = user.studentProfile.additionalDocuments[documentIndex];
 
-  // Delete the file from filesystem
-  const fs = require('fs');
-  const path = require('path');
-  const filePath = path.join(__dirname, '..', documentToDelete.url);
-
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
+  // Delete the file from filesystem using safe async deletion
+  const { safeDeleteFile } = require('../../utils/helpers');
+  await safeDeleteFile(documentToDelete.url);
 
   // Remove document from array
   user.studentProfile.additionalDocuments.splice(documentIndex, 1);
@@ -1278,8 +1074,8 @@ exports.getClientDashboardStats = catchAsync(async (req, res, next) => {
     return next(new AppError('Only clients can access this endpoint', 403));
   }
 
-  const JobPost = require('../models/jobPostModel');
-  const JobApplication = require('../models/jobApplicationModel');
+  const JobPost = require('../../models/jobPostModel');
+  const JobApplication = require('../../models/jobApplicationModel');
 
   const clientId = req.user._id;
 

@@ -1,11 +1,14 @@
 const express = require('express');
 const clientPackageController = require('../controllers/clientPackageController');
-const { protect, restrictTo } = require('../controllers/authController');
+const { protect, restrictTo } = require('../controllers/auth/authController');
 
 const router = express.Router();
 
 // Protect all routes (require authentication)
 router.use(protect);
+// Require email verification
+const { requireEmailVerification } = require('../controllers/auth/authController');
+router.use(requireEmailVerification);
 
 // Get available packages (public for authenticated users)
 router.get('/available', clientPackageController.getAvailablePackages);

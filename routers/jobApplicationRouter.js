@@ -1,11 +1,13 @@
 const express = require('express');
 const jobApplicationController = require('../controllers/jobApplicationController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 
 const router = express.Router();
 
 // Protect all routes after this middleware
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 
 // Routes for job applications
 router.route('/').get(jobApplicationController.getMyApplications);

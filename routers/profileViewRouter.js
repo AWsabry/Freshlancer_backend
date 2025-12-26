@@ -1,11 +1,13 @@
 const express = require('express');
 const profileViewController = require('../controllers/profileViewController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 
 // Public routes (any authenticated user)
 router.get('/:studentId/anonymized', profileViewController.getAnonymizedProfile);

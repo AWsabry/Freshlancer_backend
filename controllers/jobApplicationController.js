@@ -4,6 +4,7 @@ const User = require('../models/userModel');
 const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
 const sendEmail = require('../utils/email');
+const logger = require('../utils/logger');
 
 // Apply for a job (only students)
 exports.applyForJob = catchAsync(async (req, res, next) => {
@@ -15,8 +16,9 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
 
   const userId = req.user._id || req.user.id;
 
-  // Check if student is verified
-  const student = await User.findById(userId);
+  // Check if student is verified - only select needed fields
+  const student = await User.findById(userId)
+    .select('studentProfile.isVerified studentProfile.verificationStatus studentProfile.allowJobApplications');
 
   if (!student) {
     return next(new AppError('Student not found', 404));
@@ -32,8 +34,8 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   const verificationStatus = student.studentProfile.verificationStatus || 'unverified';
   const allowJobApplications = student.studentProfile.allowJobApplications !== false; // Default to true if not set
 
-  // Debug logging (can be removed in production)
-  console.log('Verification check:', {
+  // Debug logging
+  logger.debug('Verification check:', {
     userId: userId.toString(),
     isVerified,
     verificationStatus,
@@ -216,7 +218,7 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   try {
     await student.save({ validateBeforeSave: false });
   } catch (saveError) {
-    console.error('Error saving student after application:', saveError);
+    logger.error('Error saving student after application:', saveError);
     // If save fails, we should still return the application but log the error
     // The application was created successfully, so we continue
   }
@@ -261,7 +263,7 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
       });
     } catch (err) {
       // Log error but don't fail the application submission
-      console.error('Failed to send application notification email:', err.message);
+      logger.error('Failed to send application notification email:', err.message);
     }
   }
 
@@ -621,7 +623,7 @@ exports.updateApplicationStatus = catchAsync(async (req, res, next) => {
         try {
           await student.save({ validateBeforeSave: false });
         } catch (saveError) {
-          console.error('Error updating student appliedJobs status:', saveError);
+          logger.error('Error updating student appliedJobs status:', saveError);
         }
       }
     }
@@ -647,10 +649,7 @@ exports.updateApplicationStatus = catchAsync(async (req, res, next) => {
       feedback: clientFeedback && clientFeedback.message,
     });
   } catch (err) {
-    console.log(
-      'Failed to send status update notification email:',
-      err.message
-    );
+    logger.error('Failed to send status update notification email:', err.message);
   }
 
   res.status(200).json({
@@ -705,7 +704,7 @@ exports.acceptApplication = catchAsync(async (req, res, next) => {
       try {
         await student.save({ validateBeforeSave: false });
       } catch (saveError) {
-        console.error('Error updating student appliedJobs status on accept:', saveError);
+        logger.error('Error updating student appliedJobs status on accept:', saveError);
       }
     }
   }
@@ -730,10 +729,7 @@ exports.acceptApplication = catchAsync(async (req, res, next) => {
       dashboardUrl: `${frontendUrl}/student/applications/${application._id}`,
     });
   } catch (err) {
-    console.log(
-      'Failed to send acceptance notification email:',
-      err.message
-    );
+    logger.error('Failed to send acceptance notification email:', err.message);
   }
 
   // Create notification for student
@@ -808,7 +804,7 @@ exports.rejectApplication = catchAsync(async (req, res, next) => {
       try {
         await student.save({ validateBeforeSave: false });
       } catch (saveError) {
-        console.error('Error updating student appliedJobs status on reject:', saveError);
+        logger.error('Error updating student appliedJobs status on reject:', saveError);
       }
     }
   }

@@ -1,5 +1,7 @@
-const axios = require('axios');
-const AppError = require('./AppError');
+const httpClient = require('../httpClient');
+const { withRetry } = require('../networkErrorHandler');
+const AppError = require('../AppError');
+const logger = require('../logger');
 
 const PAYMOB_BASE_URL = 'https://accept.paymob.com/v1';
 
@@ -7,7 +9,7 @@ class PaymobService {
   constructor() {
     this.apiKey = process.env.PAYMOB_TOKEN;
     if (!this.apiKey) {
-      console.error('PAYMOB_TOKEN is not set in environment variables');
+      logger.error('PAYMOB_TOKEN is not set in environment variables');
     }
   }
 
@@ -17,7 +19,6 @@ class PaymobService {
    * @returns {Promise<Object>} Payment intention response
    */
   async createPaymentIntention(paymentData) {
-    console.log('Payment Created');
     try {
       const {
         amount,
@@ -68,46 +69,39 @@ class PaymobService {
           extras: customer?.extras || {},
         },
         extras: paymentData.extras || {},
-        // Paymob will use default redirect URL configured in dashboard
       };
 
-      // console.log('=== PAYMOB REQUEST ===');
-      console.log('URL:', `${PAYMOB_BASE_URL}/intention/`);
-      // console.log('Request Body:', JSON.stringify(requestBody, null, 2));
-      console.log('Headers:', {
-        'Authorization': `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
+      logger.debug('Creating Paymob payment intention:', {
+        url: `${PAYMOB_BASE_URL}/intention/`,
+        amount,
+        currency,
       });
 
-      const response = await axios.post(
-        `${PAYMOB_BASE_URL}/intention/`,
-        requestBody,
+      // Use retry wrapper for network operations
+      const response = await withRetry(
+        async () => {
+          return await httpClient.post(
+            `${PAYMOB_BASE_URL}/intention/`,
+            requestBody,
+            {
+              headers: {
+                'Authorization': `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+        },
         {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json',
-          },
+          maxRetries: 3,
+          retryDelay: 1000,
+          context: 'Paymob Payment Intention'
         }
       );
 
-      console.log('=== PAYMOB RESPONSE ===');
-      console.log('HTTP Status:', response.status);
-      console.log('Payment Intention Status:', response.data.status);
-      console.log('Intention ID:', response.data.id);
-      console.log('Client Secret:', response.data.client_secret);
-
-      // Explain payment status
-      const statusExplanation = {
-        'PENDING': '⏳ Payment intention created, waiting for user to complete payment',
-        'PROCESSED': '✅ Payment completed successfully',
-        'EXPIRED': '⏰ Payment intention expired',
-        'FAILED': '❌ Payment failed',
-        'VOIDED': '🚫 Payment voided',
-        'REFUNDED': '💰 Payment refunded'
-      };
-
-      console.log('Status Meaning:', statusExplanation[response.data.status] || 'Unknown status');
-      console.log('\nFull Response Data:', JSON.stringify(response.data, null, 2));
+      logger.info('Paymob payment intention created:', {
+        intentionId: response.data.id,
+        status: response.data.status,
+      });
 
       return {
         success: true,
@@ -117,14 +111,13 @@ class PaymobService {
         paymentUrl: response.data.payment_url || null,
       };
     } catch (error) {
-      console.error('=== PAYMOB ERROR ===');
-      console.error('Error Response:', error.response?.data);
-      console.error('Error Status:', error.response?.status);
-      console.error('Error Message:', error.message);
-      throw new AppError(
-        error.response?.data?.message || 'Failed to create payment intention',
-        error.response?.status || 500
-      );
+      // Error is already handled by httpClient interceptor and networkErrorHandler
+      // Just rethrow it (it's already an AppError)
+      logger.error('Paymob payment intention failed:', {
+        error: error.message,
+        errorCode: error.errorCode,
+      });
+      throw error;
     }
   }
 
@@ -141,21 +134,28 @@ class PaymobService {
     // Keeping this method for potential future use if Paymob changes their API
 
     try {
-      const response = await axios.get(
-        `${PAYMOB_BASE_URL}/intention/${intentionId}`,
+      const response = await withRetry(
+        async () => {
+          return await httpClient.get(
+            `${PAYMOB_BASE_URL}/intention/${intentionId}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${this.apiKey}`,
+              },
+            }
+          );
+        },
         {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-          },
+          maxRetries: 2,
+          retryDelay: 1000,
+          context: 'Paymob Payment Verification'
         }
       );
 
-      console.log('=== PAYMOB VERIFY RESPONSE ===');
-      console.log('HTTP Status:', response.status);
-      console.log('Payment Status:', response.data.status);
-      console.log('Is Paid:', response.data.status === 'PROCESSED');
-      console.log('Intention ID:', response.data.id);
-      console.log('Full Response Data:', JSON.stringify(response.data, null, 2));
+      logger.debug('Paymob payment verified:', {
+        intentionId: response.data.id,
+        status: response.data.status,
+      });
 
       return {
         success: true,
@@ -164,11 +164,13 @@ class PaymobService {
         data: response.data,
       };
     } catch (error) {
-      console.error('Paymob Verification Error:', error.response?.data || error.message);
-      throw new AppError(
-        'Failed to verify payment',
-        error.response?.status || 500
-      );
+      // Error is already handled by httpClient interceptor
+      logger.error('Paymob verification failed:', {
+        intentionId,
+        error: error.message,
+        errorCode: error.errorCode,
+      });
+      throw error;
     }
   }
 

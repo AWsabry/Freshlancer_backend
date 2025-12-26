@@ -1,11 +1,13 @@
 const express = require('express');
 const transactionController = require('../controllers/transactionController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 
 // Routes for all authenticated users
 router.get('/me', transactionController.getMyTransactions);

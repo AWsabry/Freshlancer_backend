@@ -4,12 +4,12 @@ const Transaction = require('../models/transactionModel');
 const Notification = require('../models/notificationModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
-const paymobService = require('../utils/paymob');
+const paymobService = require('../utils/payment/paymob');
 const {
   getPremiumPrices,
   getPriceForCurrency,
   getCurrencyByCountry,
-} = require('../utils/currencyRates');
+} = require('../utils/payment/currencyRates');
 const { checkAndDowngradeSingleSubscription } = require('../utils/subscriptionExpiryJob');
 
 // Get my subscription

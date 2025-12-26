@@ -1,4 +1,4 @@
-const paymobService = require('../utils/paymob');
+const paymobService = require('../utils/payment/paymob');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const Transaction = require('../models/transactionModel');

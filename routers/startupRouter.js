@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const startupController = require('../controllers/startupController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 const { uploadStartupLogo } = require('../middleware/upload');
 
 // Protect all routes
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 
 // Client routes (must come before admin routes to avoid conflicts)
 router.post('/', startupController.createStartup);

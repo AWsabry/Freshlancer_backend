@@ -1,8 +1,10 @@
 const AppError = require('../utils/AppError');
+const logger = require('../utils/logger');
+const { handleNetworkError } = require('../utils/networkErrorHandler');
 
 const handleCastErrorDB = (err) => {
   const message = `The information you provided is not valid. Please check and try again.`;
-  return new AppError(message, 400);
+  return AppError.badRequest(message, 'INVALID_ID_FORMAT');
 };
 
 const handleDuplicateFieldsDB = (err) => {
@@ -24,7 +26,7 @@ const handleDuplicateFieldsDB = (err) => {
     }
   }
 
-  return new AppError(message, 400);
+  return AppError.badRequest(message, 'DUPLICATE_FIELD', { field: keys[0] });
 };
 
 const handleValidationErrorDB = (err) => {
@@ -118,33 +120,54 @@ const handleValidationErrorDB = (err) => {
   });
 
   const message = errors.join('. ');
-  return new AppError(message, 400);
+  return AppError.badRequest(message, 'VALIDATION_ERROR', { errors });
 };
 
 const handleJsonWebTokenError = () =>
-  new AppError('Your session is invalid. Please sign in again to continue.', 401);
+  AppError.unauthorized('Your session is invalid. Please sign in again to continue.', 'INVALID_TOKEN');
 
 const handleTokenExpiredError = () =>
-  new AppError('Your session has expired. Please sign in again to continue.', 401);
+  AppError.unauthorized('Your session has expired. Please sign in again to continue.', 'TOKEN_EXPIRED');
 
 const handleMulterError = (err) => {
   // Handle multer file filter errors
   if (err.message && err.message.includes('Invalid file type')) {
-    return new AppError(err.message, 400);
+    return AppError.badRequest(err.message, 'INVALID_FILE_TYPE');
   }
   
   // Handle file size limit errors
   if (err.code === 'LIMIT_FILE_SIZE') {
-    return new AppError('File size is too large. Please upload a file smaller than 10MB.', 400);
+    const maxSize = err.limit ? (err.limit / (1024 * 1024)).toFixed(1) : '10';
+    return AppError.badRequest(
+      `File size exceeds the maximum limit of ${maxSize}MB. Please upload a smaller file.`,
+      'FILE_TOO_LARGE',
+      { maxSize: `${maxSize}MB` }
+    );
   }
   
   // Handle other multer errors
   if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-    return new AppError('Unexpected file field. Please check the file upload form.', 400);
+    return AppError.badRequest(
+      'Unexpected file field. Please check the file upload form.',
+      'UNEXPECTED_FILE_FIELD',
+      { field: err.field }
+    );
+  }
+
+  if (err.code === 'LIMIT_FILE_COUNT') {
+    return AppError.badRequest(
+      'Too many files uploaded. Please reduce the number of files.',
+      'TOO_MANY_FILES',
+      { limit: err.limit }
+    );
   }
   
   // Generic multer error
-  return new AppError(err.message || 'File upload error. Please try again.', 400);
+  return AppError.badRequest(
+    err.message || 'File upload error. Please try again.',
+    'UPLOAD_ERROR',
+    { code: err.code }
+  );
 };
 
 const sendErrorDev = (err, res) => {
@@ -152,6 +175,8 @@ const sendErrorDev = (err, res) => {
     status: err.status,
     error: err,
     message: err.message,
+    ...(err.errorCode && { errorCode: err.errorCode }),
+    ...(err.details && { details: err.details }),
     stack: err.stack,
   });
 };
@@ -163,12 +188,14 @@ const sendErrorProd = (err, res) => {
     res.status(err.statusCode).json({
       status: err.status,
       message: err.message,
+      ...(err.errorCode && { errorCode: err.errorCode }),
+      ...(err.details && { details: err.details }),
     });
     //programming or other unknown error: don't leak error details
     //all error that throw by any other package
   } else {
     // Log full error details for debugging (server-side only)
-    console.error('❌ UNEXPECTED ERROR:', {
+    logger.error('❌ UNEXPECTED ERROR:', {
       name: err.name,
       message: err.message,
       stack: err.stack,
@@ -176,36 +203,49 @@ const sendErrorProd = (err, res) => {
       statusCode: err.statusCode,
     });
     
-    // Provide more helpful error messages based on error type
-    let errorMessage = 'Something went wrong on our end. Please try again or contact support if the issue persists.';
-    
+    // Handle network errors with enhanced handler
+    if (err.code && ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'ENETUNREACH', 'EAI_AGAIN'].includes(err.code)) {
+      const networkError = handleNetworkError(err);
+      return res.status(networkError.statusCode).json({
+        status: networkError.status,
+        message: networkError.message,
+        errorCode: networkError.errorCode,
+      });
+    }
+
     // Handle specific error types with more helpful messages
+    let errorMessage = 'Something went wrong on our end. Please try again or contact support if the issue persists.';
+    let errorCode = 'INTERNAL_ERROR';
+    
     if (err.name === 'MongoServerError' || err.name === 'MongoError') {
       if (err.code === 11000) {
-        // Duplicate key error - should be caught earlier, but just in case
         errorMessage = 'This information is already registered. Please use a different one.';
+        errorCode = 'DUPLICATE_FIELD';
       } else if (err.code === 11001) {
         errorMessage = 'Database error occurred. Please try again.';
+        errorCode = 'DATABASE_ERROR';
       } else {
         errorMessage = 'Database connection error. Please try again in a moment.';
+        errorCode = 'DATABASE_CONNECTION_ERROR';
       }
     } else if (err.name === 'ValidationError') {
-      // Mongoose validation error - should be caught earlier
       errorMessage = 'Invalid data provided. Please check your input and try again.';
+      errorCode = 'VALIDATION_ERROR';
     } else if (err.name === 'CastError') {
-      // Invalid ID format - should be caught earlier
       errorMessage = 'Invalid information provided. Please check and try again.';
+      errorCode = 'INVALID_ID_FORMAT';
     } else if (err.message && err.message.includes('timeout')) {
       errorMessage = 'Request timed out. Please try again.';
+      errorCode = 'REQUEST_TIMEOUT';
     } else if (err.message && err.message.includes('network')) {
       errorMessage = 'Network error occurred. Please check your connection and try again.';
-    } else if (err.message && err.message.includes('ECONNREFUSED')) {
-      errorMessage = 'Service temporarily unavailable. Please try again in a moment.';
+      errorCode = 'NETWORK_ERROR';
     }
     
     res.status(err.statusCode || 500).json({
       status: 'error',
       message: errorMessage,
+      errorCode,
     });
   }
 };
@@ -215,12 +255,13 @@ module.exports = (err, req, res, next) => {
   err.status = err.status || 'error';
   
   // Log error details for debugging (in both dev and prod)
-  console.error('🔴 Error caught:', {
+  logger.error('🔴 Error caught:', {
     path: req.originalUrl,
     method: req.method,
     statusCode: err.statusCode,
     name: err.name,
     message: err.message,
+    errorCode: err.errorCode,
     isOperational: err.isOperational,
   });
   
@@ -276,9 +317,9 @@ module.exports = (err, req, res, next) => {
       }
     }
 
-    // Handle network/connection errors
-    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      error = new AppError('Service temporarily unavailable. Please try again in a moment.', 503);
+    // Handle network/connection errors with enhanced handler
+    if (error.code && ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'ENETUNREACH', 'EAI_AGAIN'].includes(error.code)) {
+      error = handleNetworkError(error);
     }
 
     sendErrorProd(error, res);

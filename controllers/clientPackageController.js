@@ -4,7 +4,7 @@ const Notification = require('../models/notificationModel');
 const Package = require('../models/packageModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
-const paymobService = require('../utils/paymob');
+const paymobService = require('../utils/payment/paymob');
 
 // Currency conversion rate (USD to EGP)
 const USD_TO_EGP_RATE = 49.5;

@@ -1,6 +1,6 @@
 const express = require('express');
 const categoryController = require('../controllers/categoryController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 
 const router = express.Router();
 
@@ -12,6 +12,7 @@ router.get('/', categoryController.getAllCategories);
 router.get(
   '/admin/all',
   authController.protect,
+  authController.requireEmailVerification,
   authController.restrictTo('admin'),
   categoryController.getAllCategoriesAdmin
 );
@@ -21,7 +22,9 @@ router.get(
 router.get('/:id', categoryController.getCategory);
 
 // Admin routes for CRUD operations
-router.use(authController.protect, authController.restrictTo('admin'));
+router.use(authController.protect);
+router.use(authController.requireEmailVerification);
+router.use(authController.restrictTo('admin'));
 router.post('/', categoryController.createCategory);
 router.patch('/:id', categoryController.updateCategory);
 router.delete('/:id', categoryController.deleteCategory);

@@ -75,15 +75,13 @@ exports.getAll = (Model) =>
       .select()
       .paginate();
 
-    const doc = await features.query;
-    const newDocs = doc.map((el) => {
-      return el;
-    });
+    const docs = await features.query;
+    
     res.status(200).json({
       status: 'success',
-      results: doc.length,
+      results: docs.length,
       data: {
-        data: newDocs,
+        data: docs,
       },
     });
   });
