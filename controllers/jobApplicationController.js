@@ -717,7 +717,7 @@ exports.acceptApplication = catchAsync(async (req, res, next) => {
 
   // Send notification email to student
   try {
-    const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
     await sendEmail({
       type: 'application-status-update',
       email: application.student.email,
