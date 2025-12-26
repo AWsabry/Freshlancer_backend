@@ -16,9 +16,9 @@ const BRAND_COLORS = {
   info: '#0284c7',
 };
 
-// Logo URL - Update this with your hosted logo URL
-// For production, host the logo at a public URL and update this constant
-const LOGO_URL = process.env.EMAIL_LOGO_URL || 'https://via.placeholder.com/200x60/0284c7/ffffff?text=Freshlancer';
+// Logo URL - Loaded from environment variable in config.env
+// Trims whitespace to handle any formatting issues
+const LOGO_URL = (process.env.EMAIL_LOGO_URL && process.env.EMAIL_LOGO_URL.trim()) || 'https://via.placeholder.com/200x60/0284c7/ffffff?text=Freshlancer';
 
 // Helper function to create Outlook-compatible email buttons
 const createEmailButton = (href, text, primaryColor = BRAND_COLORS.primary, primaryLight = BRAND_COLORS.primaryLight) => {

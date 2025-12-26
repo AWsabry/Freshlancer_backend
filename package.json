@@ -1,14 +1,20 @@
 {
-  "name": "natrous",
+  "name": "Freshlancer",
   "version": "1.0.0",
   "description": "",
   "main": "app.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "debug": "ndb server.js"
+    "debug": "ndb server.js",
+    "start:prod": "NODE_ENV=production node server.js",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop ecosystem.config.js",
+    "pm2:restart": "pm2 restart ecosystem.config.js",
+    "pm2:delete": "pm2 delete ecosystem.config.js",
+    "pm2:logs": "pm2 logs"
   },
-  "author": "john salama",
+  "author": "Abdelrahman Wael",
   "license": "ISC",
   "dependencies": {
     "aws-sdk": "^2.1313.0",
@@ -48,6 +54,7 @@
     "prettier": "^2.7.1"
   },
   "engines": {
-    "node": ">=16.0.0 <17.0.0"
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
   }
 }

@@ -21,13 +21,19 @@ mongoose
     useUnifiedTopology: true,
     useFindAndModify: false,
   })
-  .then(() => console.log('DB connected successfully'));
+  .then(() => {
+    console.log('DB connected successfully');
+  })
+  .catch((err) => {
+    console.error('Database connection error:', err);
+    process.exit(1);
+  });
 
-//console.log(process.env);
 const port = process.env.PORT || 8080;
 //start server
 const server = app.listen(port, () => {
-  console.log(`listening on port ${port}`);
+  console.log(`App running in ${process.env.NODE_ENV || 'development'} mode`);
+  console.log(`Server listening on port ${port}`);
   // preventSleep.preventSleep();
 });
 
@@ -35,9 +41,27 @@ const server = app.listen(port, () => {
 //this will not catch error in synchronous code
 //this will catch error in asynchronous code
 process.on('unhandledRejection', (err) => {
-  console.log('UNHANDLED REJECTION! shutting down...');
-  console.log(err.name, err.message);
+  console.error('UNHANDLED REJECTION! shutting down...');
+  console.error(err.name, err.message);
   server.close(() => {
     process.exit(1);
   });
 });
+
+// Graceful shutdown handlers
+const gracefulShutdown = (signal) => {
+  console.log(`${signal} received. Shutting down gracefully...`);
+  server.close(() => {
+    console.log('HTTP server closed.');
+    mongoose.connection.close(false, () => {
+      console.log('MongoDB connection closed.');
+      process.exit(0);
+    });
+  });
+};
+
+// Handle SIGTERM (used by PM2 and most process managers)
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Handle SIGINT (Ctrl+C)
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
