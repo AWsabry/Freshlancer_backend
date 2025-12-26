@@ -300,7 +300,8 @@ exports.signup = catchAsync(async (req, res, next) => {
 
   // Send verification email
   try {
-    const verificationURL = `${process.env.FRONTEND_URL || req.protocol + '://' + req.get('host')}/verify-email/${verificationToken}`;
+    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+    const verificationURL = `${frontendUrl}/verify-email/${verificationToken}`;
 
     // Get user role specific subject and message
     const welcomeMessage =
@@ -480,8 +481,8 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    // Use FRONTEND_URL if available, otherwise construct from request
-    const frontendUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+    // Use FRONTEND_URL if available, otherwise use production or development domain
+    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
     const resetURL = `${frontendUrl}/reset-password/${resetToken}`;
 
     await sendEmail({
@@ -529,7 +530,8 @@ exports.sendVerificationEmail = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    const verificationURL = `${process.env.FRONTEND_URL || req.protocol + '://' + req.get('host')}/verify-email/${verificationToken}`;
+    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+    const verificationURL = `${frontendUrl}/verify-email/${verificationToken}`;
 
     // Get user role specific subject and message
     const welcomeMessage =
@@ -594,7 +596,8 @@ exports.resendVerificationEmail = catchAsync(async (req, res, next) => {
 
   //3)send it to user email
   try {
-    const verificationURL = `${process.env.FRONTEND_URL || req.protocol + '://' + req.get('host')}/verify-email/${verificationToken}`;
+    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+    const verificationURL = `${frontendUrl}/verify-email/${verificationToken}`;
 
     await sendEmail({
       type: 'resend-verification',
@@ -642,7 +645,7 @@ exports.verifyEmail = catchAsync(async (req, res, next) => {
     emailVerificationExpires: { $gt: Date.now() },
   });
 
-  const frontendURL = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const frontendURL = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
 
   //2)if there is user and token does not expire, verify the email
   if (!user) {

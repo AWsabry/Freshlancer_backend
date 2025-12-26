@@ -20,6 +20,10 @@ const BRAND_COLORS = {
 // Trims whitespace to handle any formatting issues
 const LOGO_URL = (process.env.EMAIL_LOGO_URL && process.env.EMAIL_LOGO_URL.trim()) || 'https://via.placeholder.com/200x60/0284c7/ffffff?text=Freshlancer';
 
+// Email domain - Loaded from environment variable in config.env
+// Used for support email and default noreply email
+const EMAIL_DOMAIN = (process.env.EMAIL_DOMAIN && process.env.EMAIL_DOMAIN.trim()) || 'freshlancer.com';
+
 // Helper function to create Outlook-compatible email buttons
 const createEmailButton = (href, text, primaryColor = BRAND_COLORS.primary, primaryLight = BRAND_COLORS.primaryLight) => {
   return `
@@ -96,9 +100,9 @@ const createEmailWrapper = (content, primaryColorOverride = null) => {
                       © ${new Date().getFullYear()} Freshlancer. All rights reserved.
                     </p>
                     <p style="margin: 0; color: ${BRAND_COLORS.textLight}; font-size: 13px;">
-                      <a href="${process.env.FRONTEND_URL || 'https://freshlancer.com'}" style="color: ${primaryColor}; text-decoration: none; font-weight: 500; margin: 0 10px;">Visit Website</a>
+                      <a href="${process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000')}" style="color: ${primaryColor}; text-decoration: none; font-weight: 500; margin: 0 10px;">Visit Website</a>
                       <span style="color: ${primaryColor}40;">|</span>
-                      <a href="mailto:support@freshlancer.com" style="color: ${primaryColor}; text-decoration: none; font-weight: 500; margin: 0 10px;">Support</a>
+                      <a href="mailto:support@${EMAIL_DOMAIN}" style="color: ${primaryColor}; text-decoration: none; font-weight: 500; margin: 0 10px;">Support</a>
                     </p>
                   </div>
                 </td>
@@ -524,7 +528,7 @@ const sendEmail = async (options) => {
     console.log('YALAYWSYASDASDd');
     // Email options
     const mailOptions = {
-      from: `Freshlancer Team<${process.env.SMTP_USER || 'noreply@freshlancer.com'}>`,
+      from: `Freshlancer Team<${process.env.SMTP_USER || `noreply@${EMAIL_DOMAIN}`}>`,
       to: options.email,
       subject: emailSubject,
       text: options.message || 'Please view this email in an HTML-capable email client.',
