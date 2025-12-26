@@ -1,6 +1,6 @@
 const express = require('express');
 const morgan = require('morgan');
-//const rateLimit = require('express-rate-limit');
+const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const mondoSanitize = require('express-mongo-sanitize');
 const xssClean = require('xss-clean');
@@ -82,13 +82,27 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'Server is running',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+  });
+});
+
 //limit the req rate per hour
-// const limiter = rateLimit({
-//   max: 100,
-//   windowMs: 60 * 60 * 1000,
-//   message: 'you reached the max number of request please try again in hour',
-// });
-// app.use('/api', limiter);
+const limiter = rateLimit({
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
+  windowMs: 60 * 60 * 1000, // 1 hour
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api', limiter);
 //-----------------------------------------------------------------------------------------------------------------
 //mounting middleware
 app.use('/api/v1/users', userRouter);
