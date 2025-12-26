@@ -77,10 +77,10 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 function initializeScheduledJobs() {
   const { checkAndDowngradeExpiredSubscriptions } = require('./utils/subscriptionExpiryJob');
 
-  // Run subscription expiry check daily at 2:00 AM
+  // Run subscription expiry check daily at 5:00 PM
   // Cron format: minute hour day month day-of-week
-  // '0 2 * * *' = Every day at 2:00 AM
-  cron.schedule('0 2 * * *', async () => {
+  // '0 17 * * *' = Every day at 5:00 PM (17:00 in 24-hour format)
+  cron.schedule('0 17 * * *', async () => {
     console.log('\n⏰ Running scheduled subscription expiry check...');
     try {
       const count = await checkAndDowngradeExpiredSubscriptions();
@@ -94,7 +94,7 @@ function initializeScheduledJobs() {
   });
 
   console.log('✅ Scheduled jobs initialized:');
-  console.log('   - Subscription expiry check: Daily at 2:00 AM UTC');
+  console.log('   - Subscription expiry check: Daily at 5:00 PM UTC');
 
   // Optional: Run immediately on startup for testing (comment out in production)
   // Uncomment the following lines if you want to check on server startup
