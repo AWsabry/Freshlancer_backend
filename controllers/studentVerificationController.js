@@ -41,6 +41,14 @@ exports.uploadDocument = catchAsync(async (req, res, next) => {
     );
   }
 
+  // Validate expected graduation year
+  if (req.body.expectedGraduationYear) {
+    const expectedGradYear = parseInt(req.body.expectedGraduationYear);
+    if (isNaN(expectedGradYear) || expectedGradYear < 1900 || expectedGradYear > 2034) {
+      return next(new AppError('Expected graduation year must be between 1900 and 2034', 400));
+    }
+  }
+
   const verificationData = {
     student: req.user._id,
     documentType: req.body.documentType,

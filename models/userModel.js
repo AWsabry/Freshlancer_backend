@@ -166,7 +166,7 @@ const userSchema = new mongoose.Schema({
     graduationYear: {
       type: Number,
       min: [1900, 'Graduation year must be valid'],
-      max: [2100, 'Graduation year must be valid'],
+      max: [2034, 'Graduation year must not exceed 2034'],
     },
 
     // Experience and rates
