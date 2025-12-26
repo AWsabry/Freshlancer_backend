@@ -10,6 +10,7 @@ const {
   getPriceForCurrency,
   getCurrencyByCountry,
 } = require('../utils/currencyRates');
+const { checkAndDowngradeSingleSubscription } = require('../utils/subscriptionExpiryJob');
 
 // Get my subscription
 exports.getMySubscription = catchAsync(async (req, res, next) => {
@@ -29,6 +30,18 @@ exports.getMySubscription = catchAsync(async (req, res, next) => {
       plan: 'free',
       status: 'active',
     });
+  } else {
+    // Check if subscription has expired and downgrade if needed
+    // This runs every time the user accesses their subscription (on page refresh)
+    const wasDowngraded = await checkAndDowngradeSingleSubscription(subscription);
+    
+    // If subscription was downgraded, refetch it to get updated data
+    if (wasDowngraded) {
+      subscription = await Subscription.findOne({
+        student: req.user._id,
+        status: 'active',
+      });
+    }
   }
 
   res.status(200).json({
