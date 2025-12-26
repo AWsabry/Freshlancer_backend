@@ -74,7 +74,11 @@ const studentVerificationSchema = new mongoose.Schema({
     trim: true,
   },
   enrollmentYear: Number,
-  expectedGraduationYear: Number,
+  expectedGraduationYear: {
+    type: Number,
+    min: [1900, 'Expected graduation year must be valid'],
+    max: [2034, 'Expected graduation year must not exceed 2034'],
+  },
 });
 
 // Index for better query performance

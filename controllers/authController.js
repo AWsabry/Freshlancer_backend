@@ -203,8 +203,10 @@ exports.signup = catchAsync(async (req, res, next) => {
       }
       if (req.body.studentProfile.graduationYear !== undefined && req.body.studentProfile.graduationYear !== null && req.body.studentProfile.graduationYear !== '') {
         const gradYear = parseInt(req.body.studentProfile.graduationYear);
-        if (!isNaN(gradYear) && gradYear > 1900 && gradYear < 2100) {
+        if (!isNaN(gradYear) && gradYear > 1900 && gradYear <= 2034) {
           userData.studentProfile.graduationYear = gradYear;
+        } else if (gradYear > 2034) {
+          return next(new AppError('Graduation year must not exceed 2034', 400));
         }
       }
       // Experience level is required for students
@@ -744,6 +746,10 @@ exports.getMe = catchAsync(async (req, res, next) => {
     return next(new AppError('User not found', 404));
   }
 
+  // Ensure password is not included in response (already excluded by select: false, but be explicit)
+  user.password = undefined;
+  user.passwordConfirm = undefined;
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -1024,6 +1030,20 @@ exports.uploadResume = catchAsync(async (req, res, next) => {
     return next(new AppError('Only students can upload resumes', 403));
   }
 
+  // Check if student is verified - only verified students can upload resumes
+  const student = await User.findById(req.user.id);
+  const isVerified = student.studentProfile?.isVerified === true;
+  const verificationStatus = student.studentProfile?.verificationStatus || 'unverified';
+  
+  if (!isVerified || verificationStatus !== 'verified') {
+    return next(
+      new AppError(
+        'You must be verified to upload a resume. Please complete your student verification first.',
+        403
+      )
+    );
+  }
+
   // Get the file path (relative to server root for storage)
   const filePath = `/uploads/resumes/${req.file.filename}`;
 
@@ -1153,14 +1173,28 @@ exports.uploadAdditionalDocument = catchAsync(async (req, res, next) => {
     return next(new AppError('Only students can upload additional documents', 403));
   }
 
+  // Check if student is verified - only verified students can upload additional documents
+  const student = await User.findById(req.user.id);
+  const isVerified = student.studentProfile?.isVerified === true;
+  const verificationStatus = student.studentProfile?.verificationStatus || 'unverified';
+  
+  if (!isVerified || verificationStatus !== 'verified') {
+    return next(
+      new AppError(
+        'You must be verified to upload additional documents. Please complete your student verification first.',
+        403
+      )
+    );
+  }
+
   // Get the file path (relative to server root for storage)
   const filePath = `/uploads/additional-documents/${req.file.filename}`;
 
   // Get description from request body (optional)
   const description = req.body.description || '';
 
-  // Get current user to add document to array
-  const user = await User.findById(req.user.id);
+  // Use the student we already fetched for verification check
+  const user = student;
 
   if (!user.studentProfile) {
     user.studentProfile = {};
