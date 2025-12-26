@@ -77,7 +77,7 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 function initializeScheduledJobs() {
   const { checkAndDowngradeExpiredSubscriptions } = require('./utils/subscriptionExpiryJob');
 
-  // Run subscription expiry check daily at 5:00 PM
+  // Run subscription expiry check daily at 5:00 PM Egypt time
   // Cron format: minute hour day month day-of-week
   // '0 17 * * *' = Every day at 5:00 PM (17:00 in 24-hour format)
   cron.schedule('0 17 * * *', async () => {
@@ -90,17 +90,22 @@ function initializeScheduledJobs() {
     }
   }, {
     scheduled: true,
-    timezone: 'UTC'
+    timezone: 'Africa/Cairo'
   });
 
   console.log('✅ Scheduled jobs initialized:');
-  console.log('   - Subscription expiry check: Daily at 5:00 PM UTC');
+  console.log('   - Subscription expiry check: Daily at 5:00 PM Egypt time (Africa/Cairo)');
 
-  // Optional: Run immediately on startup for testing (comment out in production)
-  // Uncomment the following lines if you want to check on server startup
+  // Run subscription check on server startup/reload
+  // This ensures expired subscriptions are downgraded immediately when server restarts
+  console.log('\n🔍 Running initial subscription validity check on startup...');
   checkAndDowngradeExpiredSubscriptions()
     .then(count => {
-      console.log(`✅ Initial subscription check completed. Downgraded ${count} subscription(s).`);
+      if (count > 0) {
+        console.log(`✅ Initial subscription check completed. Downgraded ${count} expired subscription(s).`);
+      } else {
+        console.log(`✅ Initial subscription check completed. All subscriptions are valid.`);
+      }
     })
     .catch(error => {
       console.error('❌ Error in initial subscription check:', error);
