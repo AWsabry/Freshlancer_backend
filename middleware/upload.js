@@ -17,6 +17,14 @@ ensureUploadDir('uploads/additional-documents');
 ensureUploadDir('uploads/startup-logos');
 ensureUploadDir('uploads/photos');
 
+// Helper function to validate user authentication in filename generators
+const validateUserForUpload = (req, cb) => {
+  if (!req.user || (!req.user.id && !req.user._id)) {
+    return cb(new AppError('User authentication required', 401), false);
+  }
+  return null;
+};
+
 // Configure multer storage for resumes
 const resumeStorage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -24,10 +32,17 @@ const resumeStorage = multer.diskStorage({
     cb(null, 'uploads/resumes');
   },
   filename: function (req, file, cb) {
+    // Validate user authentication
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    
+    // Use _id if available, otherwise use id (Mongoose documents have both)
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    
     // Generate unique filename: userId-timestamp.extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `resume-${req.user.id}-${uniqueSuffix}${ext}`);
+    cb(null, `resume-${userId}-${uniqueSuffix}${ext}`);
   },
 });
 
@@ -37,9 +52,16 @@ const verificationStorage = multer.diskStorage({
     cb(null, 'uploads/verification-documents');
   },
   filename: function (req, file, cb) {
+    // Validate user authentication
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    
+    // Use _id if available, otherwise use id (Mongoose documents have both)
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `verification-${req.user.id}-${uniqueSuffix}${ext}`);
+    cb(null, `verification-${userId}-${uniqueSuffix}${ext}`);
   },
 });
 
@@ -49,9 +71,16 @@ const additionalDocumentStorage = multer.diskStorage({
     cb(null, 'uploads/additional-documents');
   },
   filename: function (req, file, cb) {
+    // Validate user authentication
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    
+    // Use _id if available, otherwise use id (Mongoose documents have both)
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `document-${req.user.id}-${uniqueSuffix}${ext}`);
+    cb(null, `document-${userId}-${uniqueSuffix}${ext}`);
   },
 });
 
@@ -61,9 +90,16 @@ const startupLogoStorage = multer.diskStorage({
     cb(null, 'uploads/startup-logos');
   },
   filename: function (req, file, cb) {
+    // Validate user authentication
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    
+    // Use _id if available, otherwise use id (Mongoose documents have both)
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `logo-${req.user.id}-${uniqueSuffix}${ext}`);
+    cb(null, `logo-${userId}-${uniqueSuffix}${ext}`);
   },
 });
 
@@ -73,9 +109,16 @@ const photoStorage = multer.diskStorage({
     cb(null, 'uploads/photos');
   },
   filename: function (req, file, cb) {
+    // Validate user authentication
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    
+    // Use _id if available, otherwise use id (Mongoose documents have both)
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
-    cb(null, `photo-${req.user.id}-${uniqueSuffix}${ext}`);
+    cb(null, `photo-${userId}-${uniqueSuffix}${ext}`);
   },
 });
 

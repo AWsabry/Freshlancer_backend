@@ -1,13 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const contactController = require('../controllers/contactController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 
 // Public route - no authentication required
 router.post('/', contactController.createContact);
 
 // All routes below require authentication
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 
 // Admin only routes
 router.use(authController.restrictTo('admin'));

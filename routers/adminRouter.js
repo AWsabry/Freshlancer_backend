@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 const adminController = require('../controllers/adminController');
 const analyticsController = require('../controllers/analyticsController');
 
 // Protect all routes and restrict to admin only
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 router.use(authController.restrictTo('admin'));
 
 // Dashboard stats

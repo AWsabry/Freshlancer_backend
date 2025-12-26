@@ -1,15 +1,17 @@
 const express = require('express');
 const couponController = require('../controllers/couponController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 
 const router = express.Router();
 
 // Public routes (require authentication)
-router.get('/featured', authController.protect, couponController.getFeaturedCoupons);
-router.get('/code/:code', authController.protect, couponController.getCouponByCode);
+router.get('/featured', authController.protect, authController.requireEmailVerification, couponController.getFeaturedCoupons);
+router.get('/code/:code', authController.protect, authController.requireEmailVerification, couponController.getCouponByCode);
 
 // Protected routes (require authentication)
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 
 router.get('/', couponController.getAllCoupons);
 router.get('/:id', couponController.getCoupon);

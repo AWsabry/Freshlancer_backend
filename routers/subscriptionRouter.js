@@ -1,6 +1,6 @@
 const express = require('express');
 const subscriptionController = require('../controllers/subscriptionController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 
 const router = express.Router();
 
@@ -9,6 +9,8 @@ router.get('/pricing', subscriptionController.getSubscriptionPricing);
 
 // All routes below require authentication
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 
 // Student routes (only students can manage subscriptions)
 router.use(authController.restrictTo('student', 'admin'));

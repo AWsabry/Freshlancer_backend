@@ -1,15 +1,18 @@
 const express = require('express');
 const studentVerificationController = require('../controllers/studentVerificationController');
-const authController = require('../controllers/authController');
+const authController = require('../controllers/auth/authController');
 const { uploadVerificationDocument } = require('../middleware/upload');
+const { uploadWithErrorHandling } = require('../middleware/uploadErrorHandler');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authController.protect);
+// Require email verification
+router.use(authController.requireEmailVerification);
 
 // Student routes
-router.post('/upload', uploadVerificationDocument.single('document'), studentVerificationController.uploadDocument);
+router.post('/upload', uploadWithErrorHandling(uploadVerificationDocument.single('document')), studentVerificationController.uploadDocument);
 router.get('/me', studentVerificationController.getMyVerifications);
 router.get('/status', studentVerificationController.getVerificationStatus);
 
