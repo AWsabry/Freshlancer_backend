@@ -93,16 +93,87 @@ app.get('/health', (req, res) => {
   });
 });
 
-//limit the req rate per hour
-const limiter = rateLimit({
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
-  windowMs: 60 * 60 * 1000, // 1 hour
-  message: 'Too many requests from this IP, please try again later.',
+// Rate limiters with different limits for different endpoint types
+// This prevents legitimate users from hitting limits while still protecting against abuse
+
+// General API rate limiter - more lenient for authenticated users
+const generalLimiter = rateLimit({
+  max: process.env.NODE_ENV === 'production' ? 10000 : 50000, // Increased from 100 to 10000
+  windowMs: 15 * 60 * 1000, // 15 minutes (was 1 hour)
+  message: {
+    status: 'error',
+    message: 'Too many requests from this IP, please try again in a few minutes.',
+  },
   standardHeaders: true,
   legacyHeaders: false,
+  // Use real IP when behind Apache proxy
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health';
+  },
+  // Custom key generator to handle Apache proxy properly
+  keyGenerator: (req) => {
+    // Try to get real IP from various headers (Apache proxy)
+    const forwarded = req.headers['x-forwarded-for'];
+    const realIp = req.headers['x-real-ip'];
+    const clientIp = forwarded 
+      ? forwarded.split(',')[0].trim() 
+      : realIp || req.ip;
+    return clientIp;
+  },
 });
 
-app.use('/api', limiter);
+// Stricter limiter for authentication endpoints (login, signup, password reset)
+const authLimiter = rateLimit({
+  max: process.env.NODE_ENV === 'production' ? 20 : 100, // 20 requests per 15 minutes
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  message: {
+    status: 'error',
+    message: 'Too many authentication attempts. Please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const forwarded = req.headers['x-forwarded-for'];
+    const realIp = req.headers['x-real-ip'];
+    return forwarded 
+      ? forwarded.split(',')[0].trim() 
+      : realIp || req.ip;
+  },
+});
+
+// Lenient limiter for polling endpoints (notifications, user status checks)
+const pollingLimiter = rateLimit({
+  max: process.env.NODE_ENV === 'production' ? 200 : 1000, // 200 requests per 15 minutes
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  message: {
+    status: 'error',
+    message: 'Too many polling requests. Please wait a moment.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const forwarded = req.headers['x-forwarded-for'];
+    const realIp = req.headers['x-real-ip'];
+    return forwarded 
+      ? forwarded.split(',')[0].trim() 
+      : realIp || req.ip;
+  },
+});
+
+// Apply general limiter to all API routes
+app.use('/api', generalLimiter);
+
+// Apply stricter limiter to authentication routes
+app.use('/api/v1/users/login', authLimiter);
+app.use('/api/v1/users/signup', authLimiter);
+app.use('/api/v1/users/forgotPassword', authLimiter);
+app.use('/api/v1/users/resetPassword', authLimiter);
+app.use('/api/v1/users/resendVerificationEmail', authLimiter);
+
+// Apply lenient limiter to polling endpoints
+app.use('/api/v1/notifications/unread-count', pollingLimiter);
+app.use('/api/v1/users/me', pollingLimiter);
 //-----------------------------------------------------------------------------------------------------------------
 //mounting middleware
 app.use('/api/v1/users', userRouter);

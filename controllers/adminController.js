@@ -2,6 +2,11 @@ const User = require('../models/userModel');
 const JobApplication = require('../models/jobApplicationModel');
 const JobPost = require('../models/jobPostModel');
 const Package = require('../models/packageModel');
+const Subscription = require('../models/subscriptionModel');
+const Transaction = require('../models/transactionModel');
+const Notification = require('../models/notificationModel');
+const ProfileView = require('../models/profileViewModel');
+const StudentVerification = require('../models/studentVerificationModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 
@@ -390,7 +395,7 @@ exports.toggleUserSuspension = catchAsync(async (req, res, next) => {
   });
 });
 
-// Delete user (soft delete by setting active to false)
+// Delete user (hard delete with cascading cleanup)
 exports.deleteUser = catchAsync(async (req, res, next) => {
   const user = await User.findById(req.params.id);
 
@@ -407,6 +412,12 @@ exports.deleteUser = catchAsync(async (req, res, next) => {
   if (user.role === 'student') {
     // Delete all applications by this student
     await JobApplication.deleteMany({ student: user._id });
+
+    // Delete subscriptions for this student
+    await Subscription.deleteMany({ student: user._id });
+
+    // Delete student verification documents
+    await StudentVerification.deleteMany({ student: user._id });
   } else if (user.role === 'client') {
     // Find all jobs posted by this client
     const clientJobs = await JobPost.find({ client: user._id });
@@ -419,13 +430,28 @@ exports.deleteUser = catchAsync(async (req, res, next) => {
     await JobPost.deleteMany({ client: user._id });
   }
 
-  // Soft delete by setting active to false
-  user.active = false;
-  await user.save({ validateBeforeSave: false });
+  // Delete profile views where the user is either the client or the student
+  await ProfileView.deleteMany({
+    $or: [{ client: user._id }, { student: user._id }],
+  });
+
+  // Delete notifications that belong to this user or directly reference this user
+  await Notification.deleteMany({
+    $or: [
+      { user: user._id },
+      { relatedType: 'User', relatedId: user._id },
+    ],
+  });
+
+  // Delete all transactions for this user
+  await Transaction.deleteMany({ user: user._id });
+
+  // Finally, hard delete the user document itself
+  await User.findByIdAndDelete(user._id);
 
   res.status(200).json({
     status: 'success',
-    message: `User "${user.name}" has been deleted successfully`,
+    message: `User "${user.name}" has been permanently deleted successfully`,
     data: null,
   });
 });
