@@ -268,8 +268,8 @@ const EMAIL_TEMPLATES = {
       { label: 'Message', value: options.contactMessage },
     ];
 
-    // Get OG image URL from environment or use default
-    const ogImageUrl = process.env.OG_IMAGE_URL || 'https://freshlancer.online/og-image.png';
+    // Hardcoded OG image URL
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
 
     return {
       subject: options.subject || `New Contact Form Submission: ${options.contactSubject}`,
@@ -304,8 +304,8 @@ const EMAIL_TEMPLATES = {
       'Makes a real difference in students\' lives',
     ];
 
-    // Get OG image URL from environment or use default
-    const ogImageUrl = process.env.OG_IMAGE_URL || 'https://freshlancer.online/og-image.png';
+    // Hardcoded OG image URL
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
 
     return {
       subject: 'Thank You for Your Generous Support! ❤️',
@@ -374,8 +374,8 @@ const EMAIL_TEMPLATES = {
       benefits.push('Upgrade to Premium for 100 applications per month!');
     }
 
-    // Get OG image URL from environment or use default
-    const ogImageUrl = process.env.OG_IMAGE_URL || 'https://freshlancer.online/og-image.png';
+    // Hardcoded OG image URL
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
 
     return {
       subject: 'Your Application Limit Has Been Reset! 🎉',
@@ -425,7 +425,144 @@ const EMAIL_TEMPLATES = {
         </p>
       `, BRAND_COLORS.primary)
     };
-  }
+  },
+
+  /**
+   * Database backup success notification
+   */
+  'backup-notification': (options) => {
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
+    const backupInfo = [
+      { label: 'Backup Name', value: options.backupResult.backupName },
+      { label: 'Backup Size', value: options.backupResult.backupSizeFormatted },
+      { label: 'Duration', value: `${options.backupResult.duration} seconds` },
+      { label: 'Timestamp', value: new Date(options.backupResult.timestamp).toLocaleString() },
+    ];
+
+    const cleanupInfo = [
+      { label: 'Old Backups Deleted', value: options.cleanupResult.deletedCount.toString() },
+      { label: 'Space Freed', value: options.cleanupResult.freedSpaceFormatted },
+    ];
+
+    const summaryInfo = [
+      { label: 'Total Backups', value: options.summary.totalBackups.toString() },
+      { label: 'Total Storage Used', value: options.summary.totalSize },
+      { label: 'Oldest Backup', value: options.summary.oldestBackup },
+      { label: 'Newest Backup', value: options.summary.newestBackup },
+    ];
+
+    return {
+      subject: '✅ Database Backup Completed Successfully',
+      content: createEmailWrapper(`
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+        </div>
+        ${createHeader('✅ Database Backup Completed Successfully')}
+        ${createGreeting(options.name)}
+        ${createParagraph('Your daily database backup has been completed successfully. All data is safe and secure.')}
+        
+        <div style="background: ${BRAND_COLORS.primary}10; border-left: 4px solid ${BRAND_COLORS.primary}; padding: 20px; margin: 30px 0; border-radius: 4px;">
+          <h3 style="color: ${BRAND_COLORS.primary}; font-size: 18px; margin: 0 0 15px 0;">📦 Backup Details</h3>
+          ${createDataTable(backupInfo)}
+        </div>
+
+        <div style="background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 20px; margin: 30px 0; border-radius: 4px;">
+          <h3 style="color: #3b82f6; font-size: 18px; margin: 0 0 15px 0;">🧹 Cleanup Summary</h3>
+          ${createDataTable(cleanupInfo)}
+        </div>
+
+        <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 20px; margin: 30px 0; border-radius: 4px;">
+          <h3 style="color: #22c55e; font-size: 18px; margin: 0 0 15px 0;">📊 Backup Storage Summary</h3>
+          ${createDataTable(summaryInfo)}
+        </div>
+
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          Backups are automatically kept for 7 days. Older backups are automatically deleted to save storage space.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
+  },
+
+  /**
+   * Database backup error notification
+   */
+  'backup-error': (options) => {
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
+
+    return {
+      subject: '❌ Database Backup Failed - Action Required',
+      content: createEmailWrapper(`
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+        </div>
+        ${createHeader('❌ Database Backup Failed')}
+        ${createGreeting(options.name)}
+        ${createParagraph('The daily database backup has failed. Please investigate and take action immediately.')}
+        
+        <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 20px; margin: 30px 0; border-radius: 4px;">
+          <h3 style="color: #ef4444; font-size: 18px; margin: 0 0 15px 0;">⚠️ Error Details</h3>
+          <p style="color: #991b1b; font-size: 14px; margin: 0; font-family: monospace; background: white; padding: 10px; border-radius: 4px;">
+            ${options.error || 'Unknown error occurred'}
+          </p>
+          <p style="color: #6b7280; font-size: 12px; margin: 10px 0 0 0;">
+            Timestamp: ${new Date(options.timestamp).toLocaleString()}
+          </p>
+        </div>
+
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          Please check the server logs and ensure MongoDB backup tools (mongodump) are properly installed and configured.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
+  },
+
+  /**
+   * Inactive user reminder email template
+   */
+  'inactive-user-reminder': (options) => {
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
+    const userRole = options.userRole || 'student';
+    const daysSince = options.daysSinceLastLogin === 'never' 
+      ? 'a while' 
+      : options.daysSinceLastLogin + ' days';
+
+    const studentParagraph1 = createParagraph('We noticed you haven\'t visited Freshlancer in ' + daysSince + '. There are new job opportunities waiting for you!');
+    const studentParagraph2 = createParagraph('Don\'t miss out on:');
+    const studentList = '<ul style="color: ' + BRAND_COLORS.text + '; font-size: 15px; line-height: 1.8; margin: 20px 0; padding-left: 20px;"><li>New job postings from verified clients</li><li>Opportunities to build your portfolio</li><li>Connect with clients worldwide</li><li>Earn money while studying</li></ul>';
+
+    const clientParagraph1 = createParagraph('We noticed you haven\'t visited Freshlancer in ' + daysSince + '. There are talented students ready to help with your projects!');
+    const clientParagraph2 = createParagraph('Don\'t miss out on:');
+    const clientList = '<ul style="color: ' + BRAND_COLORS.text + '; font-size: 15px; line-height: 1.8; margin: 20px 0; padding-left: 20px;"><li>New student profiles and portfolios</li><li>Affordable freelance solutions</li><li>Quality work from verified students</li><li>Fast project completion</li></ul>';
+
+    const studentContent = studentParagraph1 + studentParagraph2 + studentList;
+    const clientContent = clientParagraph1 + clientParagraph2 + clientList;
+
+    const subject = userRole === 'student' 
+      ? '👋 We Miss You! New Opportunities Await on Freshlancer'
+      : '👋 We Miss You! Talented Students Are Ready to Help';
+
+    const headerText = '👋 We Miss You!';
+    const footerText = userRole === 'student' 
+      ? 'Start applying to jobs and building your freelancing career today!'
+      : 'Post new jobs or browse student profiles to find the perfect talent for your projects!';
+
+    return {
+      subject: subject,
+      content: createEmailWrapper(
+        '<div style="text-align: center; margin-bottom: 30px;">' +
+        '<img src="' + ogImageUrl + '" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />' +
+        '</div>' +
+        createHeader(headerText) +
+        createGreeting(options.name) +
+        (userRole === 'student' ? studentContent : clientContent) +
+        createEmailButton(options.dashboardUrl, 'Visit Dashboard') +
+        '<p style="color: ' + BRAND_COLORS.textLight + '; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">' +
+        footerText +
+        '</p>',
+        BRAND_COLORS.primary
+      )
+    };
+  },
 };
 
 /**

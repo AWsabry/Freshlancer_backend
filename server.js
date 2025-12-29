@@ -76,6 +76,8 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
  */
 function initializeScheduledJobs() {
   const { checkAndDowngradeExpiredSubscriptions } = require('./utils/subscriptionExpiryJob');
+  const { runDailyBackup } = require('./utils/backup/databaseBackup');
+  const { sendInactiveUserEmails } = require('./utils/inactiveUserEmailJob');
 
   // Run subscription expiry check daily at 5:00 PM Egypt time
   // Cron format: minute hour day month day-of-week
@@ -93,8 +95,42 @@ function initializeScheduledJobs() {
     timezone: 'Africa/Cairo'
   });
 
+  // Run database backup daily at 2:00 AM Egypt time
+  // Cron format: minute hour day month day-of-week
+  // '0 2 * * *' = Every day at 2:00 AM (02:00 in 24-hour format)
+  cron.schedule('0 2 * * *', async () => {
+    console.log('\n⏰ Running scheduled database backup...');
+    try {
+      await runDailyBackup();
+      console.log('✅ Scheduled database backup completed successfully.');
+    } catch (error) {
+      console.error('❌ Error in scheduled database backup:', error);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'Africa/Cairo'
+  });
+
+  // Send weekly emails to inactive users every Monday at 10:00 AM Egypt time
+  // Cron format: minute hour day month day-of-week
+  // '0 10 * * 1' = Every Monday at 10:00 AM (1 = Monday, 0 = Sunday)
+  cron.schedule('0 10 * * 1', async () => {
+    console.log('\n⏰ Running weekly inactive user email job...');
+    try {
+      const result = await sendInactiveUserEmails();
+      console.log(`✅ Weekly inactive user emails completed. Sent: ${result.totalSent}, Failed: ${result.totalFailed}`);
+    } catch (error) {
+      console.error('❌ Error in weekly inactive user email job:', error);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'Africa/Cairo'
+  });
+
   console.log('✅ Scheduled jobs initialized:');
   console.log('   - Subscription expiry check: Daily at 5:00 PM Egypt time (Africa/Cairo)');
+  console.log('   - Database backup: Daily at 2:00 AM Egypt time (Africa/Cairo)');
+  console.log('   - Inactive user emails: Weekly on Monday at 10:00 AM Egypt time (Africa/Cairo)');
 
   // Run subscription check on server startup/reload
   // This ensures expired subscriptions are downgraded immediately when server restarts

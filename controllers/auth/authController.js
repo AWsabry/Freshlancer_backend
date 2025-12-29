@@ -136,6 +136,10 @@ exports.login = catchAsync(async (req, res, next) => {
     return next(new AppError('Please verify your email address before logging in. Check your inbox for the verification email or request a new one.', 401));
   }
 
+  // Update lastLoginAt
+  user.lastLoginAt = Date.now();
+  await user.save({ validateBeforeSave: false });
+
   // All checks passed - send token and user data
   createSendToken(user, 200, req, res, 'Login successful');
 });
@@ -205,6 +209,13 @@ exports.protect = catchAsync(async (req, res, next) => {
       new AppError('user change the password recently please log in again'),
       401
     );
+  }
+
+  //5) Update lastLoginAt if user is accessing the site (only update if last login was more than 1 hour ago to avoid too many updates)
+  const oneHourAgo = Date.now() - (60 * 60 * 1000);
+  if (!currentUser.lastLoginAt || currentUser.lastLoginAt < oneHourAgo) {
+    currentUser.lastLoginAt = Date.now();
+    await currentUser.save({ validateBeforeSave: false });
   }
 
   //go to protected route

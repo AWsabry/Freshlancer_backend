@@ -108,3 +108,6 @@ dist
 
 # Uploaded files
 uploads/
+
+# Database backups
+backups/
