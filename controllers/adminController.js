@@ -676,16 +676,16 @@ exports.getAllPackages = catchAsync(async (req, res, next) => {
 
 // Get package by ID
 exports.getPackageById = catchAsync(async (req, res, next) => {
-  const package = await Package.findById(req.params.id);
+  const packageData = await Package.findById(req.params.id);
 
-  if (!package) {
+  if (!packageData) {
     return next(new AppError('Package not found', 404));
   }
 
   res.status(200).json({
     status: 'success',
     data: {
-      package,
+      package: packageData,
     },
   });
 });
@@ -742,9 +742,9 @@ exports.createPackage = catchAsync(async (req, res, next) => {
 
 // Update package
 exports.updatePackage = catchAsync(async (req, res, next) => {
-  const package = await Package.findById(req.params.id);
+  const packageData = await Package.findById(req.params.id);
 
-  if (!package) {
+  if (!packageData) {
     return next(new AppError('Package not found', 404));
   }
 
@@ -765,7 +765,7 @@ exports.updatePackage = catchAsync(async (req, res, next) => {
   } = req.body;
 
   // Check if type is being changed and if new type already exists
-  if (type && type !== package.type) {
+  if (type && type !== packageData.type) {
     const existingPackage = await Package.findOne({ type });
     if (existingPackage) {
       return next(new AppError(`Package with type "${type}" already exists`, 400));
@@ -773,35 +773,35 @@ exports.updatePackage = catchAsync(async (req, res, next) => {
   }
 
   // Update fields
-  if (name !== undefined) package.name = name;
-  if (type !== undefined) package.type = type;
-  if (pointsTotal !== undefined) package.pointsTotal = pointsTotal;
-  if (priceUSD !== undefined) package.priceUSD = priceUSD;
-  if (description !== undefined) package.description = description;
-  if (features !== undefined) package.features = features;
-  if (profileViewsPerJob !== undefined) package.profileViewsPerJob = profileViewsPerJob;
-  if (icon !== undefined) package.icon = icon;
-  if (color !== undefined) package.color = color;
-  if (popular !== undefined) package.popular = popular;
-  if (hot !== undefined) package.hot = hot;
-  if (isActive !== undefined) package.isActive = isActive;
-  if (displayOrder !== undefined) package.displayOrder = displayOrder;
+  if (name !== undefined) packageData.name = name;
+  if (type !== undefined) packageData.type = type;
+  if (pointsTotal !== undefined) packageData.pointsTotal = pointsTotal;
+  if (priceUSD !== undefined) packageData.priceUSD = priceUSD;
+  if (description !== undefined) packageData.description = description;
+  if (features !== undefined) packageData.features = features;
+  if (profileViewsPerJob !== undefined) packageData.profileViewsPerJob = profileViewsPerJob;
+  if (icon !== undefined) packageData.icon = icon;
+  if (color !== undefined) packageData.color = color;
+  if (popular !== undefined) packageData.popular = popular;
+  if (hot !== undefined) packageData.hot = hot;
+  if (isActive !== undefined) packageData.isActive = isActive;
+  if (displayOrder !== undefined) packageData.displayOrder = displayOrder;
 
-  await package.save();
+  await packageData.save();
 
   res.status(200).json({
     status: 'success',
     data: {
-      package,
+      package: packageData,
     },
   });
 });
 
 // Delete package
 exports.deletePackage = catchAsync(async (req, res, next) => {
-  const package = await Package.findById(req.params.id);
+  const packageData = await Package.findById(req.params.id);
 
-  if (!package) {
+  if (!packageData) {
     return next(new AppError('Package not found', 404));
   }
 
