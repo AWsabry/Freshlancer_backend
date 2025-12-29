@@ -48,7 +48,7 @@ function formatFileSize(bytes) {
  * Get backup directory path
  */
 function getBackupDirectory() {
-  const backupDir = path.join(__dirname, '../../backups');
+  const backupDir = path.join(__dirname, '../../../backups');
   return backupDir;
 }
 
