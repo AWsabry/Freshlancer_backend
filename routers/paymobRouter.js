@@ -9,6 +9,10 @@ router.post('/webhook', paymobController.handleWebhook);
 // Public success callback endpoint (no authentication required - user redirected from Paymob)
 router.get('/success', paymobController.paymentSuccess);
 
+// Handle callback URL pattern with variable (e.g., /api/v1/paymob/:id/payment/success)
+// This handles cases where Paymob dashboard is configured with a callback URL that includes a variable
+router.get('/:id/payment/success', paymobController.paymentSuccess);
+
 // Complete payment success endpoint - updates everything (no authentication required)
 router.get('/complete-success', paymobController.completePaymentSuccess);
 

@@ -665,12 +665,32 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
     console.log('🍪 Clearing intentionId cookie');
     res.clearCookie('paymob_intention_id');
 
-    // Redirect to frontend success page
-    console.log('\n📤 REDIRECTING TO FRONTEND SUCCESS PAGE');
-    console.log(`Redirect URL: ${process.env.FRONTEND_URL}/payment/success`);
+    // Determine redirect URL based on payment type
+    const paymentType = transaction.metadata?.paymentType || transaction.type;
+    let redirectUrl = `${process.env.FRONTEND_URL}/payment/success`;
+    
+    console.log('\n📤 DETERMINING REDIRECT URL');
+    console.log('Payment Type:', paymentType);
+    console.log('Transaction Type:', transaction.type);
+    
+    // Redirect based on payment type
+    if (paymentType === 'supporter' || transaction.type === 'granting') {
+      redirectUrl = `${process.env.FRONTEND_URL}/payment/success?type=supporter`;
+      console.log('✅ Redirecting to supporter success page');
+    } else if (paymentType === 'subscription' || transaction.type === 'subscription_payment') {
+      redirectUrl = `${process.env.FRONTEND_URL}/payment/success?type=subscription`;
+      console.log('✅ Redirecting to subscription success page');
+    } else if (paymentType === 'package' || transaction.type === 'package_purchase') {
+      redirectUrl = `${process.env.FRONTEND_URL}/payment/success?type=package`;
+      console.log('✅ Redirecting to package success page');
+    } else {
+      console.log('⚠️ Unknown payment type, using default success page');
+    }
+    
+    console.log(`Redirect URL: ${redirectUrl}`);
     console.log('=== END COMPLETE PAYMENT SUCCESS ===\n');
 
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/success`);
+    return res.redirect(redirectUrl);
   } catch (error) {
     console.error('❌ Payment success processing error:', error);
     console.error('Error stack:', error.stack);
@@ -682,18 +702,20 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
 
 // Success callback - called after successful payment (Paymob redirect endpoint)
 exports.paymentSuccess = catchAsync(async (req, res, next) => {
-  const { id } = req.query; // Paymob sends 'id' as the intention ID
+  // Paymob can send 'id' as query parameter or as route parameter
+  const intentionId = req.query.id || req.params.id; // Check both query and params
 
   console.log('=== PAYMENT SUCCESS CALLBACK ===');
-  console.log('Intention ID:', id);
-  console.log('Redirecting to frontend with ID...');
+  console.log('Intention ID from query:', req.query.id);
+  console.log('Intention ID from params:', req.params.id);
+  console.log('Final Intention ID:', intentionId);
+  console.log('Redirecting to complete-success endpoint...');
 
-  if (!id) {
+  if (!intentionId) {
     console.log('❌ Missing intention ID');
     return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?error=missing_id`);
   }
 
-  // Simply redirect to frontend payment success page with the intention ID
-  // The frontend will handle calling /complete-success to upgrade the subscription
-  return res.redirect(`${process.env.FRONTEND_URL}/payment/success?id=${id}`);
+  // Redirect to complete-success endpoint which will process the payment and redirect appropriately
+  return res.redirect(`${process.env.BASE_URL}/api/v1/paymob/complete-success?id=${intentionId}`);
 });
