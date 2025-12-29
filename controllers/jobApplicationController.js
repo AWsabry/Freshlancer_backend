@@ -12,13 +12,15 @@ const normalizeAttachmentUrls = (attachments, baseUrl) => {
     return attachments;
   }
   return attachments.map(attachment => {
-    if (attachment.url && !attachment.url.startsWith('http')) {
+    // Create a new object to avoid mutation
+    const normalizedAttachment = { ...attachment };
+    if (normalizedAttachment.url && !normalizedAttachment.url.startsWith('http')) {
       // If URL is relative, make it absolute
-      attachment.url = attachment.url.startsWith('/') 
-        ? `${baseUrl}${attachment.url}` 
-        : `${baseUrl}/${attachment.url}`;
+      normalizedAttachment.url = normalizedAttachment.url.startsWith('/') 
+        ? `${baseUrl}${normalizedAttachment.url}` 
+        : `${baseUrl}/${normalizedAttachment.url}`;
     }
-    return attachment;
+    return normalizedAttachment;
   });
 };
 
@@ -394,57 +396,95 @@ exports.getMyApplications = catchAsync(async (req, res, next) => {
     },
   });
 
-  // Execute query
-  let applications = await mongoQuery;
+  // Execute query with error handling
+  let applications;
+  try {
+    applications = await mongoQuery;
+  } catch (err) {
+    logger.error('Error fetching applications:', { error: err.message, userId, role: req.user.role });
+    return next(new AppError('Failed to fetch applications', 500));
+  }
+  
   const total = await JobApplication.countDocuments(query);
   
   // Normalize attachment URLs to full URLs
   const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
   applications = applications.map(app => {
-    const appObj = app.toObject ? app.toObject() : app;
-    if (appObj.attachments && Array.isArray(appObj.attachments)) {
-      appObj.attachments = normalizeAttachmentUrls(appObj.attachments, baseUrl);
+    try {
+      // Convert to plain object if it's a Mongoose document
+      let appObj;
+      if (app && typeof app === 'object') {
+        appObj = app.toObject ? app.toObject() : { ...app };
+      } else {
+        appObj = app;
+      }
+      
+      // Handle null/undefined jobPost
+      if (!appObj.jobPost) {
+        appObj.jobPost = null;
+      }
+      
+      if (appObj.attachments && Array.isArray(appObj.attachments)) {
+        appObj.attachments = normalizeAttachmentUrls(appObj.attachments, baseUrl);
+      }
+      return appObj;
+    } catch (err) {
+      logger.error('Error processing application:', { error: err.message, appId: app?._id || 'unknown' });
+      // Return app as-is if there's an error
+      try {
+        return app.toObject ? app.toObject() : app;
+      } catch (e) {
+        logger.error('Error converting application to object:', { error: e.message });
+        return app;
+      }
     }
-    return appObj;
   });
 
   // For students, check subscription and hide client data for free users
   if (req.user.role === 'student') {
-    const Subscription = require('../models/subscriptionModel');
-    const subscription = await Subscription.findOne({
-      student: req.user._id,
-      status: 'active',
-    });
-    const isPremium = subscription?.plan === 'premium';
+    let isPremium = false;
+    try {
+      const Subscription = require('../models/subscriptionModel');
+      const subscription = await Subscription.findOne({
+        student: req.user._id,
+        status: 'active',
+      });
+      isPremium = subscription?.plan === 'premium';
+    } catch (err) {
+      logger.error('Error fetching subscription:', { error: err.message, userId: req.user._id });
+      // Continue with isPremium = false if subscription lookup fails
+    }
 
     // Hide client data and budget for free plan users
     if (!isPremium) {
       applications = applications.map((app) => {
-        const appObj = app.toObject();
-        if (appObj.jobPost) {
-          // Hide client data
-          if (appObj.jobPost.client) {
-            if (appObj.jobPost.client._id || appObj.jobPost.client.name || appObj.jobPost.client.email || appObj.jobPost.client.photo) {
+        try {
+          // app is already a plain object from previous map, but ensure it's an object
+          const appObj = app && typeof app === 'object' ? { ...app } : app;
+          if (appObj.jobPost) {
+            // Hide client data
+            if (appObj.jobPost.client) {
               appObj.jobPost.client = { message: 'Premium members only' };
-            } else {
-              appObj.jobPost.client = { message: 'Premium members only' };
+            }
+            
+            // Hide budget data
+            if (appObj.jobPost.budget) {
+              appObj.jobPost.budget = {
+                message: 'Premium members only'
+              };
             }
           }
           
-          // Hide budget data
-          if (appObj.jobPost.budget) {
-            appObj.jobPost.budget = {
-              message: 'Premium members only'
-            };
+          // Replace contactUnlockedByClient boolean with "premium members only" for non-premium users
+          if (appObj.contactUnlockedByClient !== undefined) {
+            appObj.contactUnlockedByClient = 'premium members only';
           }
+          
+          return appObj;
+        } catch (err) {
+          logger.error('Error hiding premium data:', { error: err.message, appId: app._id });
+          return app; // Return original if error
         }
-        
-        // Replace contactUnlockedByClient boolean with "premium members only" for non-premium users
-        if (appObj.contactUnlockedByClient !== undefined) {
-          appObj.contactUnlockedByClient = 'premium members only';
-        }
-        
-        return appObj;
       });
     }
   }
