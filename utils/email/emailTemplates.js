@@ -110,6 +110,39 @@ const EMAIL_TEMPLATES = {
   },
 
   /**
+   * Password reset confirmation email template
+   */
+  'password-reset-confirmation': (options) => {
+    const securityInfo = [
+      'Your password has been successfully changed',
+      'If you did not make this change, please contact support immediately',
+      'For security, we recommend using a strong, unique password'
+    ];
+
+    return {
+      subject: 'Freshlancer - Password Reset Confirmation ✅',
+      content: createEmailWrapper(`
+        ${createHeader('Password Reset Successful ✅')}
+        ${createGreeting(options.name)}
+        ${createParagraph('Your password has been successfully reset. If you made this change, you can safely ignore this email.')}
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 40px 0;">
+          <tr>
+            <td style="padding: 20px 0; border-top: 1px solid ${BRAND_COLORS.primary}20; border-bottom: 1px solid ${BRAND_COLORS.primary}20;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 16px; font-weight: 600; text-align: center;">
+                🔒 Security Information
+              </p>
+              ${createInfoBox(securityInfo)}
+            </td>
+          </tr>
+        </table>
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          If you did not reset your password, please contact our support team immediately to secure your account.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
+  },
+
+  /**
    * Resend verification email template
    */
   'resend-verification': (options) => {

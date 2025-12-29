@@ -263,41 +263,47 @@ exports.forgotPassword = catchAsync(async (req, res, next) => {
   const resetToken = user.createPasswordResetToken();
   await user.save({ validateBeforeSave: false }); //save the changes and leave the unchanged fields
 
-  //3)send it to user email
-  try {
-    const frontendUrl = getFrontendUrl();
-    const resetURL = `${frontendUrl}/reset-password/${resetToken}`;
+  //3)send it to user email - send immediately without blocking response
+  const frontendUrl = getFrontendUrl();
+  const resetURL = `${frontendUrl}/reset-password/${resetToken}`;
 
-    await sendEmail({
-      type: 'password-reset',
-      email: user.email,
-      name: user.name,
-      userRole: user.role,
-      subject: 'FreeStudent - Reset Your Password',
-      resetUrl: resetURL,
-      message: `You requested a password reset for your FreeStudent account. Click the link to reset your password.`,
+  // Send email immediately and don't wait for it to complete before responding
+  // This makes it fast like OTP emails
+  sendEmail({
+    type: 'password-reset',
+    email: user.email,
+    name: user.name,
+    userRole: user.role,
+    subject: 'Freshlancer - Reset Your Password',
+    resetUrl: resetURL,
+    message: `You requested a password reset for your Freshlancer account. Click the link to reset your password.`,
+  })
+    .then(() => {
+      logger.info('✅ Password reset email sent successfully to:', user.email);
+    })
+    .catch((err) => {
+      // Log error but don't fail the request - email sending is async
+      logger.error('❌ Error sending password reset email:', {
+        error: err.message,
+        stack: err.stack,
+        userId: user._id,
+        email: user.email,
+      });
+      
+      // Clear tokens on error so user can request again
+      User.findByIdAndUpdate(user._id, {
+        passwordResetToken: undefined,
+        passwordResetExpires: undefined,
+      }).catch(updateErr => {
+        logger.error('Failed to clear reset tokens:', updateErr);
+      });
     });
 
-    res.status(200).json({
-      status: 'success',
-      message: 'Password reset email sent!',
-    });
-  } catch (err) {
-    // Log the error for debugging
-    console.error('Error sending password reset email:', {
-      error: err.message,
-      stack: err.stack,
-      userId: user._id,
-    });
-    
-    user.passwordResetToken = undefined;
-    user.passwordResetExpires = undefined;
-    await user.save({ validateBeforeSave: false });
-
-    return next(
-      new AppError('There was an error sending the email. Try again later!', 500)
-    );
-  }
+  // Respond immediately - email is sent asynchronously
+  res.status(200).json({
+    status: 'success',
+    message: 'Password reset email sent! Please check your inbox.',
+  });
 });
 
 exports.sendVerificationEmail = catchAsync(async (req, res, next) => {
@@ -462,7 +468,26 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
   //3)update changedPasswordAt property at user
   //at mongo middleware
 
-  //4)send the jwt and log the user in
+  //4) Send confirmation email that password was reset (send immediately, don't wait)
+  sendEmail({
+    type: 'password-reset-confirmation',
+    email: user.email,
+    name: user.name,
+    userRole: user.role,
+  })
+    .then(() => {
+      logger.info('✅ Password reset confirmation email sent to:', user.email);
+    })
+    .catch(err => {
+      // Log error but don't fail the password reset
+      logger.error('❌ Failed to send password reset confirmation email:', {
+        error: err.message,
+        userId: user._id,
+        email: user.email,
+      });
+    });
+
+  //5)send the jwt and log the user in
   createSendToken(user, 200, req, res);
 });
 
