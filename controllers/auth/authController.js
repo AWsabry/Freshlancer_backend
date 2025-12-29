@@ -452,23 +452,32 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
     .update(req.params.token)
     .digest('hex');
   //get user thats matches the token and expires date greater than now
+  // Include password field (it's select: false by default) to compare with old password
   const user = await User.findOne({
     passwordResetToken: hashedToken,
     passwordResetExpires: { $gt: Date.now() },
-  });
+  }).select('+password');
 
   //2)if there is user and token dose not expires reset the password
   if (!user) return next(new AppError('Token is invalid or expires'), 400);
+  
+  //3) Check if the new password is the same as the old password
+  const isSamePassword = await user.checkPassword(req.body.password, user.password);
+  if (isSamePassword) {
+    return next(new AppError('You cannot reset your password with an old one. Please choose a different password.'), 400);
+  }
+  
+  //4) Set new password
   user.password = req.body.password;
   user.passwordConfirm = req.body.passwordConfirm;
   user.passwordResetToken = undefined;
   user.passwordResetExpires = undefined;
   await user.save();
 
-  //3)update changedPasswordAt property at user
+  //5)update changedPasswordAt property at user
   //at mongo middleware
 
-  //4) Send confirmation email that password was reset (send immediately, don't wait)
+  //6) Send confirmation email that password was reset (send immediately, don't wait)
   sendEmail({
     type: 'password-reset-confirmation',
     email: user.email,
@@ -487,7 +496,7 @@ exports.resetPassword = catchAsync(async (req, res, next) => {
       });
     });
 
-  //5)send the jwt and log the user in
+  //7)send the jwt and log the user in
   createSendToken(user, 200, req, res);
 });
 
