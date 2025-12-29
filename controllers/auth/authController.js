@@ -518,10 +518,19 @@ exports.updatePassword = catchAsync(async (req, res, next) => {
 });
 
 exports.getMe = catchAsync(async (req, res, next) => {
-  const user = await User.findById(req.user.id);
+  let user = await User.findById(req.user.id);
 
   if (!user) {
     return next(new AppError('User not found', 404));
+  }
+
+  // Sync application count from JobApplication collection if user is a student
+  if (user.role === 'student') {
+    const { syncApplicationCount } = require('../../utils/applicationCounter');
+    await syncApplicationCount(user._id);
+    
+    // Refresh user to get updated count
+    user = await User.findById(req.user.id);
   }
 
   // Ensure password is not included in response (already excluded by select: false, but be explicit)

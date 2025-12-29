@@ -4,6 +4,8 @@ const AppError = require('../utils/AppError');
 const Transaction = require('../models/transactionModel');
 const User = require('../models/userModel');
 const { encryptCookie, decryptCookie } = require('../utils/encryption');
+const sendEmail = require('../utils/email');
+const logger = require('../utils/logger');
 
 // Handle Paymob webhook
 exports.handleWebhook = catchAsync(async (req, res, next) => {
@@ -46,7 +48,7 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
     transaction.completedAt = Date.now();
   }
   transaction.metadata = {
-    ...transaction.metadata,
+    ...transaction.metadata.toObject ? transaction.metadata.toObject() : transaction.metadata,
     webhookData: processedData,
     transactionId: processedData.transactionId,
     orderId: processedData.orderId,
@@ -133,6 +135,89 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
         } else {
           console.log('Package already completed - skipping duplicate activation');
         }
+      }
+    } else if (transaction.type === 'granting') {
+      // Handle granting/donation payment
+      const Granting = require('../models/grantingModel');
+      const grantingId = transaction.metadata?.grantingId;
+      
+      if (grantingId) {
+        const granting = await Granting.findById(grantingId);
+        
+        if (granting) {
+          // Only update if not already completed (prevent duplicate updates)
+          if (granting.status !== 'completed') {
+            granting.status = 'completed';
+            granting.completedAt = Date.now();
+            await granting.save();
+            
+            console.log('Granting completed for user:', user._id);
+            console.log('Amount:', granting.currency, granting.amount);
+            
+            // Create notification
+            await Notification.create({
+              user: user._id,
+              type: 'system_announcement',
+              title: 'Thank You for Your Support!',
+              message: `Thank you for supporting Freshlancer! Your contribution of ${granting.currency} ${granting.amount} helps us support students.`,
+              relatedId: granting._id,
+              relatedType: 'Granting',
+              icon: 'success',
+            });
+            
+            console.log('Notification created for granting');
+            
+            // Send donation confirmation email asynchronously
+            sendEmail({
+              type: 'donation-confirmation',
+              email: user.email,
+              name: user.name,
+              amount: granting.amount,
+              currency: granting.currency,
+              paymentMethod: processedData.paymentMethod || 'Paymob',
+              transactionDate: granting.completedAt || Date.now(),
+              message: granting.message || '',
+            })
+              .then(() => {
+                logger.info('✅ Donation confirmation email sent to:', user.email);
+              })
+              .catch(err => {
+                logger.error('❌ Failed to send donation confirmation email:', {
+                  error: err.message,
+                  userId: user._id,
+                  email: user.email,
+                });
+              });
+            
+            // Send donation confirmation email asynchronously
+            sendEmail({
+              type: 'donation-confirmation',
+              email: user.email,
+              name: user.name,
+              amount: granting.amount,
+              currency: granting.currency,
+              paymentMethod: processedData.paymentMethod || 'Paymob',
+              transactionDate: granting.completedAt || Date.now(),
+              message: granting.message || '',
+            })
+              .then(() => {
+                logger.info('✅ Donation confirmation email sent to:', user.email);
+              })
+              .catch(err => {
+                logger.error('❌ Failed to send donation confirmation email:', {
+                  error: err.message,
+                  userId: user._id,
+                  email: user.email,
+                });
+              });
+          } else {
+            console.log('Granting already completed - skipping duplicate update');
+          }
+        } else {
+          console.log('Granting not found for ID:', grantingId);
+        }
+      } else {
+        console.log('No grantingId found in transaction metadata');
       }
     }
   }
@@ -319,7 +404,7 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
     try {
       const latestTransaction = await Transaction.findOne({
         status: 'pending',
-        type: { $in: ['subscription_payment', 'package_purchase'] }
+        type: { $in: ['subscription_payment', 'package_purchase', 'granting'] }
       })
       .sort({ createdAt: -1 })
       .limit(1);
@@ -506,6 +591,74 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
       }
 
       console.log('=== PACKAGE ACTIVATION COMPLETE ===\n');
+    }
+    // Handle granting payment
+    else if (transaction.type === 'granting') {
+      console.log('\n=== PROCESSING GRANTING PAYMENT ===');
+      
+      const Granting = require('../models/grantingModel');
+      const grantingId = transaction.metadata?.grantingId;
+      
+      if (grantingId) {
+        const granting = await Granting.findById(grantingId);
+        
+        if (granting) {
+          console.log('Granting found:', granting._id);
+          console.log('Current status:', granting.status);
+          
+          // Only update if not already completed (prevent duplicate updates)
+          if (granting.status !== 'completed') {
+            granting.status = 'completed';
+            granting.completedAt = Date.now();
+            await granting.save();
+            
+            console.log('✅ Granting marked as completed');
+            
+            // Create notification
+            await Notification.create({
+              user: user._id,
+              type: 'system_announcement',
+              title: 'Thank You for Your Support!',
+              message: `Thank you for supporting Freshlancer! Your contribution of ${granting.currency} ${granting.amount} helps us support students.`,
+              relatedId: granting._id,
+              relatedType: 'Granting',
+              icon: 'success',
+            });
+            
+            console.log('✅ Notification created');
+            
+            // Send donation confirmation email asynchronously
+            sendEmail({
+              type: 'donation-confirmation',
+              email: user.email,
+              name: user.name,
+              amount: granting.amount,
+              currency: granting.currency,
+              paymentMethod: transaction.paymentMethod || 'Paymob',
+              transactionDate: granting.completedAt || Date.now(),
+              message: granting.message || '',
+            })
+              .then(() => {
+                logger.info('✅ Donation confirmation email sent to:', user.email);
+              })
+              .catch(err => {
+                logger.error('❌ Failed to send donation confirmation email:', {
+                  error: err.message,
+                  userId: user._id,
+                  email: user.email,
+                });
+              });
+          } else {
+            console.log('⚠️ Granting already completed - skipping update to prevent duplicates');
+          }
+        } else {
+          console.log('⚠️ Warning: Granting not found for ID:', grantingId);
+        }
+      } else {
+        console.log('⚠️ Warning: No grantingId found in transaction metadata');
+      }
+      
+      console.log('=== GRANTING PROCESSING COMPLETE ===\n');
     }
 
     // Clear the intention ID cookie after successful processing

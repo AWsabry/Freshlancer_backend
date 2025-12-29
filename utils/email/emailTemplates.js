@@ -268,14 +268,160 @@ const EMAIL_TEMPLATES = {
       { label: 'Message', value: options.contactMessage },
     ];
 
+    // Get OG image URL from environment or use default
+    const ogImageUrl = process.env.OG_IMAGE_URL || 'https://freshlancer.online/og-image.png';
+
     return {
       subject: options.subject || `New Contact Form Submission: ${options.contactSubject}`,
       content: createEmailWrapper(`
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+        </div>
         ${createHeader('New Contact Form Submission 📧')}
         ${createParagraph('You have received a new message from the contact form on Freshlancer.')}
         ${createDataTable(contactInfo)}
         <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
           Please respond to this inquiry at your earliest convenience.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
+  },
+
+  /**
+   * Donation confirmation email template
+   */
+  'donation-confirmation': (options) => {
+    const donationInfo = [
+      { label: 'Amount', value: `${options.currency} ${options.amount}` },
+      { label: 'Payment Method', value: options.paymentMethod || 'Paymob' },
+      { label: 'Transaction Date', value: new Date(options.transactionDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) },
+    ];
+
+    const impactInfo = [
+      'Your contribution directly supports talented students',
+      'Helps us maintain and improve the Freshlancer platform',
+      'Enables us to provide more opportunities for students',
+      'Makes a real difference in students\' lives',
+    ];
+
+    // Get OG image URL from environment or use default
+    const ogImageUrl = process.env.OG_IMAGE_URL || 'https://freshlancer.online/og-image.png';
+
+    return {
+      subject: 'Thank You for Your Generous Support! ❤️',
+      content: createEmailWrapper(`
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+        </div>
+        ${createHeader('Thank You for Your Support! ❤️')}
+        ${createGreeting(options.name)}
+        ${createParagraph('We are incredibly grateful for your generous donation to Freshlancer. Your support helps us empower talented students and create more opportunities for them to succeed.')}
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 30px 0;">
+          <tr>
+            <td style="padding: 20px; background: ${BRAND_COLORS.primary}10; border-radius: 8px;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 18px; font-weight: 600; text-align: center;">
+                💝 Your Donation Details
+              </p>
+              ${createDataTable(donationInfo)}
+            </td>
+          </tr>
+        </table>
+        ${options.message ? `
+          <div style="margin: 30px 0; padding: 20px; background: ${BRAND_COLORS.primary}05; border-left: 4px solid ${BRAND_COLORS.primary}; border-radius: 4px;">
+            <p style="margin: 0 0 10px 0; color: ${BRAND_COLORS.primary}; font-size: 16px; font-weight: 600;">
+              Your Message:
+            </p>
+            <p style="margin: 0; color: ${BRAND_COLORS.text}; font-size: 15px; line-height: 1.7; font-style: italic;">
+              "${options.message}"
+            </p>
+          </div>
+        ` : ''}
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 40px 0;">
+          <tr>
+            <td style="padding: 20px 0; border-top: 1px solid ${BRAND_COLORS.primary}20; border-bottom: 1px solid ${BRAND_COLORS.primary}20;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 16px; font-weight: 600; text-align: center;">
+                🌟 Your Impact
+              </p>
+              ${createInfoBox(impactInfo)}
+            </td>
+          </tr>
+        </table>
+        <p style="color: ${BRAND_COLORS.text}; font-size: 17px; line-height: 1.7; margin: 30px 0; text-align: center; font-weight: 500;">
+          Your generosity makes a real difference. Thank you for being part of our mission to support students! 🙏
+        </p>
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          If you have any questions about your donation, please don't hesitate to contact our support team.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
+  },
+
+  /**
+   * Application limit reset email template
+   */
+  'application-limit-reset': (options) => {
+    const subscriptionTier = options.subscriptionTier || 'free';
+    const monthlyLimit = subscriptionTier === 'premium' ? 100 : 10;
+    const planName = subscriptionTier === 'premium' ? 'Premium' : 'Free';
+
+    const benefits = [
+      `You now have ${monthlyLimit} fresh applications available`,
+      'Start applying to jobs that match your skills',
+      'Make the most of your monthly application limit',
+    ];
+
+    if (subscriptionTier === 'free') {
+      benefits.push('Upgrade to Premium for 100 applications per month!');
+    }
+
+    // Get OG image URL from environment or use default
+    const ogImageUrl = process.env.OG_IMAGE_URL || 'https://freshlancer.online/og-image.png';
+
+    return {
+      subject: 'Your Application Limit Has Been Reset! 🎉',
+      content: createEmailWrapper(`
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+        </div>
+        ${createHeader('Application Limit Reset! 🎉')}
+        ${createGreeting(options.name)}
+        ${createParagraph('Great news! Your monthly application limit has been reset. You can now apply to more jobs and continue building your freelancing career!')}
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 30px 0;">
+          <tr>
+            <td style="padding: 20px; background: ${BRAND_COLORS.primary}10; border-radius: 8px;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 18px; font-weight: 600; text-align: center;">
+                📊 Your Plan Details
+              </p>
+              <div style="text-align: center; margin: 15px 0;">
+                <p style="margin: 5px 0; color: ${BRAND_COLORS.text}; font-size: 16px;">
+                  <strong>Plan:</strong> ${planName}
+                </p>
+                <p style="margin: 5px 0; color: ${BRAND_COLORS.text}; font-size: 16px;">
+                  <strong>Monthly Limit:</strong> ${monthlyLimit} applications
+                </p>
+                <p style="margin: 5px 0; color: ${BRAND_COLORS.text}; font-size: 16px;">
+                  <strong>Applications Available:</strong> ${monthlyLimit}
+                </p>
+              </div>
+            </td>
+          </tr>
+        </table>
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 40px 0;">
+          <tr>
+            <td style="padding: 20px 0; border-top: 1px solid ${BRAND_COLORS.primary}20; border-bottom: 1px solid ${BRAND_COLORS.primary}20;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 16px; font-weight: 600; text-align: center;">
+                🚀 What's Next?
+              </p>
+              ${createInfoBox(benefits)}
+            </td>
+          </tr>
+        </table>
+        <p style="color: ${BRAND_COLORS.text}; font-size: 17px; line-height: 1.7; margin: 30px 0; text-align: center; font-weight: 500;">
+          Ready to find your next opportunity? Browse available jobs and start applying!
+        </p>
+        ${createEmailButton(options.dashboardUrl || 'https://freshlancer.online/student/jobs', 'Browse Jobs')}
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          Your application limit will reset again next month. Make the most of your ${monthlyLimit} applications!
         </p>
       `, BRAND_COLORS.primary)
     };

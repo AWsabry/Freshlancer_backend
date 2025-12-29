@@ -18,6 +18,10 @@ exports.getMySubscription = catchAsync(async (req, res, next) => {
     return next(new AppError('Only students have subscriptions', 403));
   }
 
+  // Sync application count from JobApplication collection before returning subscription
+  const { syncApplicationCount } = require('../utils/applicationCounter');
+  await syncApplicationCount(req.user._id);
+
   let subscription = await Subscription.findOne({
     student: req.user._id,
     status: 'active',
@@ -58,45 +62,20 @@ exports.checkApplicationLimit = catchAsync(async (req, res, next) => {
     return next(new AppError('Only students can check application limits', 403));
   }
 
+  const { syncApplicationCount } = require('../utils/applicationCounter');
+  
+  // Sync application count from JobApplication collection (includes reset check)
+  const { applicationsUsedThisMonth, wasReset, resetDate } = await syncApplicationCount(req.user._id);
+
+  // Get subscription tier and limits
   const User = require('../models/userModel');
   const student = await User.findById(req.user._id);
-
   if (!student) {
     return next(new AppError('Student not found', 404));
   }
 
-  // Check if reset date has passed and reset counter if needed
-  const now = new Date();
-  const resetDate = student.studentProfile?.applicationLimitResetDate;
-
-  if (resetDate && now >= resetDate) {
-    // Reset the counter and set new reset date (first day of next month)
-    const nextResetDate = new Date();
-    nextResetDate.setMonth(nextResetDate.getMonth() + 1);
-    nextResetDate.setDate(1);
-    nextResetDate.setHours(0, 0, 0, 0);
-
-    student.studentProfile.applicationsUsedThisMonth = 0;
-    student.studentProfile.applicationLimitResetDate = nextResetDate;
-    await student.save({ validateBeforeSave: false });
-
-    // Also reset the subscription model to keep it in sync
-    const subscription = await Subscription.findOne({
-      student: req.user._id,
-      status: 'active',
-    });
-
-    if (subscription) {
-      subscription.applicationsUsedThisMonth = 0;
-      subscription.limitResetDate = nextResetDate;
-      await subscription.save();
-    }
-  }
-
-  // Get subscription tier and limits
   const subscriptionTier = student.studentProfile?.subscriptionTier || 'free';
-  const applicationsUsed = student.studentProfile?.applicationsUsedThisMonth || 0;
-  const applicationResetDate = student.studentProfile?.applicationLimitResetDate;
+  const applicationsUsed = applicationsUsedThisMonth;
 
   let monthlyLimit;
   if (subscriptionTier === 'premium') {
@@ -115,7 +94,7 @@ exports.checkApplicationLimit = catchAsync(async (req, res, next) => {
       currentUsage: applicationsUsed,
       limit: monthlyLimit,
       plan: subscriptionTier,
-      resetDate: applicationResetDate,
+      resetDate: resetDate,
     },
   });
 });
