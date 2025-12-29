@@ -1,6 +1,8 @@
 const Contact = require('../models/contactModel');
 const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
+const sendEmail = require('../utils/email');
+const logger = require('../utils/logger');
 
 // Create a new contact submission (public - no auth required)
 exports.createContact = catchAsync(async (req, res, next) => {
@@ -16,6 +18,33 @@ exports.createContact = catchAsync(async (req, res, next) => {
     subject,
     message,
   });
+
+  // Send email to support@freshlancer.online asynchronously
+  sendEmail({
+    type: 'contact-form',
+    email: 'support@freshlancer.online',
+    name: 'Support Team',
+    subject: `New Contact Form Submission: ${subject}`,
+    contactName: name,
+    contactEmail: email,
+    contactSubject: subject,
+    contactMessage: message,
+  })
+    .then(() => {
+      logger.info('✅ Contact form email sent to support@freshlancer.online:', {
+        contactId: contact._id,
+        from: email,
+        subject: subject,
+      });
+    })
+    .catch(err => {
+      logger.error('❌ Failed to send contact form email:', {
+        error: err.message,
+        contactId: contact._id,
+        from: email,
+        subject: subject,
+      });
+    });
 
   res.status(201).json({
     status: 'success',

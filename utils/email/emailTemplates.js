@@ -255,6 +255,30 @@ const EMAIL_TEMPLATES = {
         ${createEmailButton(options.dashboardUrl || '#', 'View Dashboard')}
       `, BRAND_COLORS.primary)
     };
+  },
+
+  /**
+   * Contact form submission email template
+   */
+  'contact-form': (options) => {
+    const contactInfo = [
+      { label: 'Name', value: options.contactName },
+      { label: 'Email', value: options.contactEmail },
+      { label: 'Subject', value: options.contactSubject },
+      { label: 'Message', value: options.contactMessage },
+    ];
+
+    return {
+      subject: options.subject || `New Contact Form Submission: ${options.contactSubject}`,
+      content: createEmailWrapper(`
+        ${createHeader('New Contact Form Submission 📧')}
+        ${createParagraph('You have received a new message from the contact form on Freshlancer.')}
+        ${createDataTable(contactInfo)}
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          Please respond to this inquiry at your earliest convenience.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
   }
 };
 
