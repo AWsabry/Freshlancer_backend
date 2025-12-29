@@ -111,3 +111,6 @@ uploads/
 
 # Database backups
 backups/
+
+# Frontend error logs
+logs/frontend-*.log

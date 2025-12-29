@@ -144,6 +144,7 @@ exports.getStudentProfile = catchAsync(async (req, res, next) => {
         phone: student.phone,
         location: student.location,
         studentProfile: student.studentProfile || {},
+        subscriptionTier: student.studentProfile?.subscriptionTier || 'free',
         joinedAt: student.joinedAt,
         createdAt: student.createdAt,
       },
@@ -369,11 +370,12 @@ exports.getUnlockedStudents = catchAsync(async (req, res, next) => {
 
   const unlockedStudents = client.clientProfile?.unlockedStudents || [];
   
-  // Map students to include verification status from studentProfile
+  // Map students to include verification status and subscription tier from studentProfile
   const studentsWithVerification = unlockedStudents.map(student => {
     const studentObj = student.toObject ? student.toObject() : student;
     return {
       ...studentObj,
+      subscriptionTier: studentObj.studentProfile?.subscriptionTier || 'free',
       isVerified: studentObj.studentProfile?.isVerified || false,
       verificationStatus: studentObj.studentProfile?.verificationStatus || 'unverified',
     };
