@@ -149,10 +149,19 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
           if (granting.status !== 'completed') {
             granting.status = 'completed';
             granting.completedAt = Date.now();
+            
+            // Ensure transaction is linked to granting
+            if (!granting.transaction) {
+              granting.transaction = transaction._id;
+            }
+            
             await granting.save();
             
-            console.log('Granting completed for user:', user._id);
-            console.log('Amount:', granting.currency, granting.amount);
+            console.log('✅ Granting marked as completed');
+            console.log('Granting ID:', granting._id);
+            console.log('Status:', granting.status);
+            console.log('Completed At:', granting.completedAt);
+            console.log('Transaction linked:', granting.transaction ? 'Yes' : 'No');
             
             // Create notification
             await Notification.create({
@@ -165,29 +174,7 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
               icon: 'success',
             });
             
-            console.log('Notification created for granting');
-            
-            // Send donation confirmation email asynchronously
-            sendEmail({
-              type: 'donation-confirmation',
-              email: user.email,
-              name: user.name,
-              amount: granting.amount,
-              currency: granting.currency,
-              paymentMethod: processedData.paymentMethod || 'Paymob',
-              transactionDate: granting.completedAt || Date.now(),
-              message: granting.message || '',
-            })
-              .then(() => {
-                logger.info('✅ Donation confirmation email sent to:', user.email);
-              })
-              .catch(err => {
-                logger.error('❌ Failed to send donation confirmation email:', {
-                  error: err.message,
-                  userId: user._id,
-                  email: user.email,
-                });
-              });
+            console.log('✅ Notification created for granting');
             
             // Send donation confirmation email asynchronously
             sendEmail({
@@ -211,13 +198,13 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
                 });
               });
           } else {
-            console.log('Granting already completed - skipping duplicate update');
+            console.log('⚠️ Granting already completed - skipping duplicate update');
           }
         } else {
-          console.log('Granting not found for ID:', grantingId);
+          console.log('❌ Granting not found for ID:', grantingId);
         }
       } else {
-        console.log('No grantingId found in transaction metadata');
+        console.log('❌ No grantingId found in transaction metadata');
       }
     }
   }
@@ -610,9 +597,19 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
           if (granting.status !== 'completed') {
             granting.status = 'completed';
             granting.completedAt = Date.now();
+            
+            // Ensure transaction is linked to granting
+            if (!granting.transaction) {
+              granting.transaction = transaction._id;
+            }
+            
             await granting.save();
             
             console.log('✅ Granting marked as completed');
+            console.log('Granting ID:', granting._id);
+            console.log('Status:', granting.status);
+            console.log('Completed At:', granting.completedAt);
+            console.log('Transaction linked:', granting.transaction ? 'Yes' : 'No');
             
             // Create notification
             await Notification.create({
@@ -652,10 +649,10 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
             console.log('⚠️ Granting already completed - skipping update to prevent duplicates');
           }
         } else {
-          console.log('⚠️ Warning: Granting not found for ID:', grantingId);
+          console.log('❌ Warning: Granting not found for ID:', grantingId);
         }
       } else {
-        console.log('⚠️ Warning: No grantingId found in transaction metadata');
+        console.log('❌ Warning: No grantingId found in transaction metadata');
       }
       
       console.log('=== GRANTING PROCESSING COMPLETE ===\n');
