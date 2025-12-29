@@ -183,13 +183,52 @@ transactionSchema.index({ createdAt: -1 });
 // Generate unique invoice number
 transactionSchema.pre('save', async function (next) {
   if (this.isNew && !this.invoiceNumber) {
-    const count = await this.constructor.countDocuments();
     const date = new Date();
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
-    this.invoiceNumber = `INV-${year}${month}-${(count + 1)
-      .toString()
-      .padStart(6, '0')}`;
+    const prefix = `INV-${year}${month}-`;
+    
+    // Find the highest invoice number for this month
+    const lastTransaction = await this.constructor
+      .findOne({ invoiceNumber: new RegExp(`^${prefix}`) })
+      .sort({ invoiceNumber: -1 })
+      .select('invoiceNumber')
+      .lean();
+    
+    let sequence = 1;
+    if (lastTransaction && lastTransaction.invoiceNumber) {
+      // Extract the sequence number from the last invoice number
+      const lastSequence = parseInt(lastTransaction.invoiceNumber.replace(prefix, ''));
+      if (!isNaN(lastSequence)) {
+        sequence = lastSequence + 1;
+      }
+    }
+    
+    // Generate invoice number with retry logic for uniqueness
+    let attempts = 0;
+    let invoiceNumber;
+    let isUnique = false;
+    
+    while (!isUnique && attempts < 10) {
+      invoiceNumber = `${prefix}${sequence.toString().padStart(6, '0')}`;
+      
+      // Check if this invoice number already exists
+      const existing = await this.constructor.findOne({ invoiceNumber }).lean();
+      if (!existing) {
+        isUnique = true;
+      } else {
+        sequence++;
+        attempts++;
+      }
+    }
+    
+    if (!isUnique) {
+      // Fallback: use timestamp-based invoice number if we can't find a unique sequential one
+      const timestamp = Date.now().toString().slice(-6);
+      invoiceNumber = `${prefix}${timestamp}`;
+    }
+    
+    this.invoiceNumber = invoiceNumber;
   }
   next();
 });
