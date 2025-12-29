@@ -50,6 +50,7 @@ exports.createGranting = catchAsync(async (req, res, next) => {
     status: 'pending',
     description: message || `Support Freshlancer - ${currency} ${amount} donation`,
     metadata: {
+      paymentType: 'supporter', // Flag to identify supporter/donation payments
       grantingId: granting._id.toString(),
       originalAmount: amount,
       processingFee,

@@ -282,7 +282,9 @@ exports.upgradeToPremium = catchAsync(async (req, res, next) => {
     description: `Premium subscription - ${billingCycle} billing (${currency})${appliedCoupon ? ` with ${appliedCoupon.discountPercentage}% discount` : ''}`,
     relatedId: subscription._id,
     relatedType: 'Subscription',
-    metadata: {},
+    metadata: {
+      paymentType: 'subscription', // Flag to identify subscription payments
+    },
   };
 
   // Add coupon information to transaction metadata if applied

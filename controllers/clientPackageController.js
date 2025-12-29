@@ -175,7 +175,9 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
     packageType: config.type,
     packageId: config._id,
     pointsProcessed: false,
-    metadata: {},
+    metadata: {
+      paymentType: 'package', // Flag to identify package purchase payments
+    },
   };
 
   // Add coupon information to transaction metadata if applied
