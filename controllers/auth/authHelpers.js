@@ -17,6 +17,7 @@ const prepareBaseUserData = (req) => {
     emailVerified: false,
     accountCreatedSource: 'Web',
     profileCompletionPercentage: 20,
+    lastLoginAt: null, // Initialize lastLoginAt to null (will be set on first login)
   };
 };
 
