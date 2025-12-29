@@ -3,6 +3,7 @@ const router = express.Router();
 const authController = require('../controllers/auth/authController');
 const adminController = require('../controllers/adminController');
 const analyticsController = require('../controllers/analyticsController');
+const logController = require('../controllers/logController');
 
 // Protect all routes and restrict to admin only
 router.use(authController.protect);
@@ -43,5 +44,11 @@ router.get('/applications', adminController.getAllApplications);
 
 // Jobs overview
 router.get('/jobs', adminController.getAllJobs);
+
+// Log management routes
+router.get('/logs/files', logController.getLogFiles);
+router.get('/logs/stats', logController.getLogStats);
+router.get('/logs/:date', logController.getLogFileContent);
+router.delete('/logs/:date', logController.deleteLogFile);
 
 module.exports = router;
