@@ -279,6 +279,28 @@ const userSchema = new mongoose.Schema({
     },
     verificationSubmittedAt: Date,
     verificationApprovedAt: Date,
+    // Store verification document URLs for easy access
+    verificationDocuments: [
+      {
+        documentUrl: {
+          type: String,
+          required: true,
+        },
+        fileName: {
+          type: String,
+          required: true,
+        },
+        documentType: {
+          type: String,
+          enum: ['student_id', 'enrollment_certificate', 'transcript', 'other'],
+        },
+        uploadedAt: Date,
+        status: {
+          type: String,
+          enum: ['pending', 'approved', 'rejected'],
+        },
+      },
+    ],
 
     // Job application preference
     allowJobApplications: {

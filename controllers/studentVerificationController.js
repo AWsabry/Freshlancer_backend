@@ -49,10 +49,14 @@ exports.uploadDocument = catchAsync(async (req, res, next) => {
     }
   }
 
+  // Build full document URL (use BASE_URL from env or construct from request)
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const documentUrl = `${baseUrl}/uploads/verification-documents/${req.file.filename}`;
+
   const verificationData = {
     student: req.user._id,
     documentType: req.body.documentType,
-    documentUrl: `/uploads/verification-documents/${req.file.filename}`,
+    documentUrl: documentUrl, // Store full URL
     fileName: req.file.originalname,
     fileSize: req.file.size,
     institutionName: req.body.institutionName,
@@ -63,11 +67,27 @@ exports.uploadDocument = catchAsync(async (req, res, next) => {
 
   const verification = await StudentVerification.create(verificationData);
 
-  // Update user verification status to pending
-  await User.findByIdAndUpdate(req.user._id, {
-    'studentProfile.verificationStatus': 'pending',
-    'studentProfile.verificationSubmittedAt': Date.now(),
+  // Update user verification status to pending and store document URL
+  const user = await User.findById(req.user._id);
+  if (!user.studentProfile) {
+    user.studentProfile = {};
+  }
+  if (!user.studentProfile.verificationDocuments) {
+    user.studentProfile.verificationDocuments = [];
+  }
+  
+  // Add document to user's verification documents array
+  user.studentProfile.verificationDocuments.push({
+    documentUrl: documentUrl,
+    fileName: req.file.originalname,
+    documentType: req.body.documentType,
+    uploadedAt: Date.now(),
+    status: 'pending',
   });
+  
+  user.studentProfile.verificationStatus = 'pending';
+  user.studentProfile.verificationSubmittedAt = Date.now();
+  await user.save({ validateBeforeSave: false });
 
   res.status(201).json({
     status: 'success',
@@ -181,12 +201,32 @@ exports.approveVerification = catchAsync(async (req, res, next) => {
 
   await verification.save();
 
-  // Update user's studentProfile verification status
-  await User.findByIdAndUpdate(verification.student._id, {
-    'studentProfile.verificationStatus': 'verified',
-    'studentProfile.isVerified': true,
-    'studentProfile.verifiedAt': Date.now(),
-  });
+  // Update user's studentProfile verification status - ensure both fields are set
+  const student = await User.findById(verification.student._id || verification.student);
+  if (!student) {
+    return next(new AppError('Student not found', 404));
+  }
+  
+  if (!student.studentProfile) {
+    student.studentProfile = {};
+  }
+  
+  // Update verification document status in user's verificationDocuments array
+  if (student.studentProfile.verificationDocuments && student.studentProfile.verificationDocuments.length > 0) {
+    const docIndex = student.studentProfile.verificationDocuments.findIndex(
+      doc => doc.documentUrl && doc.documentUrl.includes(verification.documentUrl.split('/').pop())
+    );
+    if (docIndex !== -1) {
+      student.studentProfile.verificationDocuments[docIndex].status = 'approved';
+    }
+  }
+  
+  // Set both isVerified and verificationStatus to ensure proper verification
+  student.studentProfile.verificationStatus = 'verified';
+  student.studentProfile.isVerified = true;
+  student.studentProfile.verificationApprovedAt = Date.now();
+  
+  await student.save({ validateBeforeSave: false });
 
   // Create notification for student
   await Notification.create({
@@ -243,11 +283,31 @@ exports.rejectVerification = catchAsync(async (req, res, next) => {
 
   await verification.save();
 
-  // Update user's studentProfile verification status
-  await User.findByIdAndUpdate(verification.student._id, {
-    'studentProfile.verificationStatus': 'rejected',
-    'studentProfile.isVerified': false,
-  });
+  // Update user's studentProfile verification status - ensure both fields are set
+  const student = await User.findById(verification.student._id || verification.student);
+  if (!student) {
+    return next(new AppError('Student not found', 404));
+  }
+  
+  if (!student.studentProfile) {
+    student.studentProfile = {};
+  }
+  
+  // Update verification document status in user's verificationDocuments array
+  if (student.studentProfile.verificationDocuments && student.studentProfile.verificationDocuments.length > 0) {
+    const docIndex = student.studentProfile.verificationDocuments.findIndex(
+      doc => doc.documentUrl && doc.documentUrl.includes(verification.documentUrl.split('/').pop())
+    );
+    if (docIndex !== -1) {
+      student.studentProfile.verificationDocuments[docIndex].status = 'rejected';
+    }
+  }
+  
+  // Set both isVerified and verificationStatus to ensure proper rejection
+  student.studentProfile.verificationStatus = 'rejected';
+  student.studentProfile.isVerified = false;
+  
+  await student.save({ validateBeforeSave: false });
 
   // Create notification for student
   await Notification.create({
