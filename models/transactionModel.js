@@ -19,6 +19,7 @@ const transactionSchema = new mongoose.Schema({
         'refund',
         'platform_fee',
         'points_purchase',
+        'granting',
       ],
       message: 'Invalid transaction type',
     },

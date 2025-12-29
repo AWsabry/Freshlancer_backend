@@ -5,6 +5,7 @@ const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
 const sendEmail = require('../utils/email');
 const logger = require('../utils/logger');
+const { syncApplicationCount, incrementApplicationCount } = require('../utils/applicationCounter');
 
 // Helper function to normalize attachment URLs to full URLs
 const normalizeAttachmentUrls = (attachments, baseUrl) => {
@@ -124,10 +125,11 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     return next(new AppError('Job post client information is missing', 500));
   }
 
-  // Check if student has already applied (including ALL statuses: pending, accepted, rejected, withdrawn)
+  // Check if student has already applied (excluding withdrawn applications to allow re-application)
   const existingApplication = await JobApplication.findOne({
     jobPost: req.params.jobId,
     student: userId,
+    status: { $ne: 'withdrawn' }, // Exclude withdrawn applications to allow re-application
   });
 
   if (existingApplication) {
@@ -139,38 +141,30 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     );
   }
 
-  // Check if reset date has passed and reset counter if needed
-  const now = new Date();
-  const resetDate = student.studentProfile?.applicationLimitResetDate;
+  // Check if there's a withdrawn application - if so, we'll update it instead of creating a new one
+  // This preserves the application history while allowing re-application
+  const withdrawnApplication = await JobApplication.findOne({
+    jobPost: req.params.jobId,
+    student: userId,
+    status: 'withdrawn',
+  });
 
-  if (resetDate && now >= resetDate) {
-    // Reset the counter and set new reset date (first day of next month)
-    const nextResetDate = new Date();
-    nextResetDate.setMonth(nextResetDate.getMonth() + 1);
-    nextResetDate.setDate(1);
-    nextResetDate.setHours(0, 0, 0, 0);
-
-    student.studentProfile.applicationsUsedThisMonth = 0;
-    student.studentProfile.applicationLimitResetDate = nextResetDate;
-    await student.save({ validateBeforeSave: false });
-
-    // Also reset the subscription model
-    const Subscription = require('../models/subscriptionModel');
-    const subscription = await Subscription.findOne({
-      student: userId,
-      status: 'active',
+  let isReapplication = false;
+  if (withdrawnApplication) {
+    isReapplication = true;
+    logger.info('Found withdrawn application, will update it for re-application:', {
+      withdrawnApplicationId: withdrawnApplication._id.toString(),
+      jobPostId: req.params.jobId,
+      studentId: userId.toString(),
     });
-
-    if (subscription) {
-      subscription.applicationsUsedThisMonth = 0;
-      subscription.limitResetDate = nextResetDate;
-      await subscription.save();
-    }
   }
 
+  // Sync application count from JobApplication collection and check/reset if needed
+  const { applicationsUsedThisMonth: syncedCount, wasReset } = await syncApplicationCount(userId);
+  
   // Check application limits based on subscription tier
   const subscriptionTier = student.studentProfile?.subscriptionTier || 'free';
-  const applicationsUsed = student.studentProfile?.applicationsUsedThisMonth || 0;
+  const applicationsUsed = syncedCount;
 
   let monthlyLimit;
   if (subscriptionTier === 'premium') {
@@ -220,89 +214,118 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     });
   }
 
-  // Create the application
-  const applicationData = {
-    ...req.body,
-    attachments: attachments, // Use processed attachments with full URLs
-    jobPost: req.params.jobId,
-    student: userId,
-  };
-
+  // Create or update the application
   let application;
-  try {
-    application = await JobApplication.create(applicationData);
-  } catch (error) {
-    // Handle validation errors and duplicate key errors
-    if (error.name === 'ValidationError') {
-      return next(new AppError(`Validation error: ${error.message}`, 400));
+  if (isReapplication && withdrawnApplication) {
+    // Update the withdrawn application to a new pending application
+    const applicationData = {
+      ...req.body,
+      attachments: attachments, // Use processed attachments with full URLs
+      status: 'pending', // Reset to pending status
+      withdrawnAt: undefined, // Clear withdrawal timestamp
+      withdrawalReason: undefined, // Clear withdrawal reason
+      createdAt: withdrawnApplication.createdAt, // Keep original creation date for accurate counting
+    };
+    
+    try {
+      application = await JobApplication.findByIdAndUpdate(
+        withdrawnApplication._id,
+        applicationData,
+        { new: true, runValidators: true }
+      );
+      logger.info('Updated withdrawn application for re-application:', {
+        applicationId: application._id.toString(),
+        jobPostId: req.params.jobId,
+        studentId: userId.toString(),
+      });
+    } catch (error) {
+      if (error.name === 'ValidationError') {
+        return next(new AppError(`Validation error: ${error.message}`, 400));
+      }
+      throw error;
     }
-    if (error.code === 11000) {
-      return next(new AppError('You have already applied for this job', 400));
+  } else {
+    // Create a new application
+    const applicationData = {
+      ...req.body,
+      attachments: attachments, // Use processed attachments with full URLs
+      jobPost: req.params.jobId,
+      student: userId,
+    };
+
+    try {
+      application = await JobApplication.create(applicationData);
+    } catch (error) {
+      // Handle validation errors and duplicate key errors
+      if (error.name === 'ValidationError') {
+        return next(new AppError(`Validation error: ${error.message}`, 400));
+      }
+      if (error.code === 11000) {
+        return next(new AppError('You have already applied for this job', 400));
+      }
+      // Re-throw unexpected errors
+      throw error;
     }
-    // Re-throw unexpected errors
-    throw error;
   }
 
-  // Increment monthly application usage and add job to appliedJobs list
-  // Ensure studentProfile exists
-  if (!student.studentProfile) {
-    student.studentProfile = {};
-  }
-  
-  student.studentProfile.applicationsUsedThisMonth = applicationsUsed + 1;
+  // Sync application count from JobApplication collection (includes the newly created/updated application)
+  // This ensures the count is always accurate based on actual JobApplication records
+  await syncApplicationCount(userId);
 
-  // Add job to appliedJobs list if not already there
-  if (!student.studentProfile.appliedJobs) {
-    student.studentProfile.appliedJobs = [];
-  }
-  
-  const alreadyInList = student.studentProfile.appliedJobs.some(
-    (job) => job.jobId.toString() === req.params.jobId
-  );
+  // Add job to appliedJobs list if not already there (or update if re-applying)
+  const freshStudent = await User.findById(userId);
+  if (freshStudent && freshStudent.studentProfile) {
+    if (!freshStudent.studentProfile.appliedJobs) {
+      freshStudent.studentProfile.appliedJobs = [];
+    }
+    
+    const jobIndex = freshStudent.studentProfile.appliedJobs.findIndex(
+      (job) => job.jobId && job.jobId.toString() === req.params.jobId
+    );
 
-  if (!alreadyInList) {
-    student.studentProfile.appliedJobs.push({
-      jobId: req.params.jobId,
-      title: jobPost.title,
-      appliedAt: Date.now(),
-      status: 'pending',
-      applicationId: application._id.toString(), // Store application ID for reference
-    });
-  }
-
-  // Save student with error handling
-  try {
-    await student.save({ validateBeforeSave: false });
-  } catch (saveError) {
-    logger.error('Error saving student after application:', saveError);
-    // If save fails, we should still return the application but log the error
-    // The application was created successfully, so we continue
-  }
-
-  // Also update the subscription model to keep it in sync
-  const Subscription = require('../models/subscriptionModel');
-  const subscription = await Subscription.findOne({
-    student: userId,
-    status: 'active',
-  });
-
-  if (subscription) {
-    subscription.applicationsUsedThisMonth = applicationsUsed + 1;
-    await subscription.save();
+    if (jobIndex === -1) {
+      // Not in list, add it
+      freshStudent.studentProfile.appliedJobs.push({
+        jobId: req.params.jobId,
+        title: jobPost.title,
+        appliedAt: isReapplication ? withdrawnApplication.createdAt : Date.now(),
+        status: 'pending',
+        applicationId: application._id.toString(), // Store application ID for reference
+      });
+    } else {
+      // Already in list (from previous application), update it
+      freshStudent.studentProfile.appliedJobs[jobIndex].status = 'pending';
+      freshStudent.studentProfile.appliedJobs[jobIndex].appliedAt = isReapplication ? withdrawnApplication.createdAt : Date.now();
+      freshStudent.studentProfile.appliedJobs[jobIndex].applicationId = application._id.toString();
+    }
+    
+    try {
+      await freshStudent.save({ validateBeforeSave: false });
+    } catch (saveError) {
+      logger.error('Error saving student appliedJobs after application:', saveError);
+    }
   }
 
-  // Increment applicationsCount in JobPost
-  await JobPost.findByIdAndUpdate(
-    req.params.jobId,
-    { $inc: { applicationsCount: 1 } },
-    { new: true }
-  );
+  // Only increment applicationsCount if this is a new application (not a re-application)
+  // For re-applications, the count should remain the same since we're updating an existing application
+  if (!isReapplication) {
+    await JobPost.findByIdAndUpdate(
+      req.params.jobId,
+      { $inc: { applicationsCount: 1 } },
+      { new: true }
+    );
+  }
 
   // Send notification email to client (only if client email exists)
   if (jobPost.client && jobPost.client.email) {
     try {
       // Determine if student is premium (has active subscription)
-      const isPremium = subscription && subscription.status === 'active';
+      const Subscription = require('../models/subscriptionModel');
+      const subscription = await Subscription.findOne({
+        student: userId,
+        status: 'active',
+      });
+      const isPremium = subscription && subscription.status === 'active' && subscription.plan === 'premium';
       const studentLabel = isPremium ? 'premium student' : 'student';
       
       await sendEmail({
@@ -954,7 +977,8 @@ exports.withdrawApplication = catchAsync(async (req, res, next) => {
     );
   }
 
-  const application = await JobApplication.findById(req.params.id);
+  const application = await JobApplication.findById(req.params.id)
+    .populate('jobPost', '_id'); // Populate jobPost to ensure we have the ID
 
   if (!application) {
     return next(new AppError('Application not found', 404));
@@ -969,6 +993,11 @@ exports.withdrawApplication = catchAsync(async (req, res, next) => {
     );
   }
 
+  // Ensure we have the jobPost ID
+  if (!application.jobPost) {
+    return next(new AppError('Job post not found for this application', 404));
+  }
+
   // Check if application can be withdrawn
   if (['accepted', 'withdrawn'].includes(application.status)) {
     return next(
@@ -979,6 +1008,8 @@ exports.withdrawApplication = catchAsync(async (req, res, next) => {
     );
   }
 
+  // Update application status to withdrawn (keep the application record)
+  // This allows the application to remain visible in the applications list
   const updatedApplication = await JobApplication.findByIdAndUpdate(
     req.params.id,
     {
@@ -989,16 +1020,99 @@ exports.withdrawApplication = catchAsync(async (req, res, next) => {
     { new: true, runValidators: true }
   );
 
-  // Decrement applicationsCount in JobPost
-  await JobPost.findByIdAndUpdate(
-    application.jobPost,
-    { $inc: { applicationsCount: -1 } },
-    { new: true }
-  );
+  // Remove job from student's appliedJobs array so it appears in available jobs
+  const User = require('../models/userModel');
+  const student = await User.findById(userId);
+  if (student && student.studentProfile && student.studentProfile.appliedJobs) {
+    // Get jobPost ID - handle both ObjectId and populated object
+    const jobPostId = application.jobPost._id 
+      ? application.jobPost._id.toString() 
+      : application.jobPost.toString();
+    const applicationIdStr = req.params.id.toString();
+    
+    const initialLength = student.studentProfile.appliedJobs.length;
+    logger.info('Before removal - appliedJobs:', {
+      count: initialLength,
+      jobIds: student.studentProfile.appliedJobs.map(j => ({
+        jobId: j.jobId ? j.jobId.toString() : null,
+        applicationId: j.applicationId ? j.applicationId.toString() : null,
+      })),
+      targetJobPostId: jobPostId,
+      targetApplicationId: applicationIdStr,
+    });
+    
+    student.studentProfile.appliedJobs = student.studentProfile.appliedJobs.filter(
+      (job) => {
+        // Remove if it matches the jobPost ID or the application ID
+        const jobIdStr = job.jobId ? job.jobId.toString() : null;
+        const appIdStr = job.applicationId ? job.applicationId.toString() : null;
+        const jobIdMatch = jobIdStr === jobPostId;
+        const appIdMatch = appIdStr === applicationIdStr;
+        
+        // Keep the job if it doesn't match either ID
+        const shouldKeep = !(jobIdMatch || appIdMatch);
+        
+        if (!shouldKeep) {
+          logger.debug('Removing job from appliedJobs:', {
+            jobId: jobIdStr,
+            applicationId: appIdStr,
+            matchedJobId: jobIdMatch,
+            matchedAppId: appIdMatch,
+          });
+        }
+        
+        return shouldKeep;
+      }
+    );
+    
+    const removed = initialLength > student.studentProfile.appliedJobs.length;
+    if (removed) {
+      logger.info('✅ Removed job from appliedJobs after withdrawal:', {
+        studentId: userId.toString(),
+        jobPostId: jobPostId,
+        applicationId: applicationIdStr,
+        initialLength,
+        finalLength: student.studentProfile.appliedJobs.length,
+        removedCount: initialLength - student.studentProfile.appliedJobs.length,
+      });
+    } else {
+      logger.warn('⚠️ No job removed from appliedJobs after withdrawal:', {
+        studentId: userId.toString(),
+        jobPostId: jobPostId,
+        applicationId: applicationIdStr,
+        initialLength,
+        appliedJobsCount: student.studentProfile.appliedJobs.length,
+      });
+    }
+    
+    try {
+      await student.save({ validateBeforeSave: false });
+      logger.info('✅ Successfully saved student after removing job from appliedJobs');
+    } catch (saveError) {
+      logger.error('❌ Error saving student after removing job from appliedJobs:', {
+        error: saveError.message,
+        stack: saveError.stack,
+        studentId: userId.toString(),
+      });
+    }
+  } else {
+    logger.warn('⚠️ Cannot remove job from appliedJobs - student or appliedJobs not found:', {
+      studentId: userId.toString(),
+      hasStudent: !!student,
+      hasStudentProfile: !!(student && student.studentProfile),
+      hasAppliedJobs: !!(student && student.studentProfile && student.studentProfile.appliedJobs),
+    });
+  }
+
+  // DO NOT decrement applicationsCount in JobPost - withdrawn applications still count
+  // The application count should remain the same to reflect all applications received
+
+  // DO NOT decrement application count for the student - withdrawn applications still count
+  // The monthly application limit should reflect all applications submitted
 
   res.status(200).json({
     status: 'success',
-    message: 'Application withdrawn successfully',
+    message: 'Application withdrawn successfully. You can now apply to this job again.',
     data: {
       application: updatedApplication,
     },
@@ -1103,10 +1217,11 @@ exports.checkApplicationStatus = catchAsync(async (req, res, next) => {
 
   const userId = req.user._id || req.user.id;
 
-  // Check if student has already applied (including ALL statuses: pending, accepted, rejected, withdrawn)
+  // Check if student has already applied (excluding withdrawn applications to allow re-application)
   const existingApplication = await JobApplication.findOne({
     jobPost: req.params.jobId,
     student: userId,
+    status: { $ne: 'withdrawn' }, // Exclude withdrawn applications to allow re-application
   });
 
   res.status(200).json({
