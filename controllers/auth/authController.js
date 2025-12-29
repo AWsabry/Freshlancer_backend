@@ -87,6 +87,14 @@ exports.signup = catchAsync(async (req, res, next) => {
     delete userData._startupData; // Clean up
   }
 
+  // Log user registration
+  logger.info(`✅ User registered: ${newUser.email}`, {
+    action: 'user_registration',
+    userId: newUser._id,
+    role: newUser.role,
+    email: newUser.email,
+  });
+
   // Send verification email
   const emailResult = await sendVerificationEmail(newUser, req, res, next);
   createSendToken(newUser, 201, req, res, emailResult.message);
@@ -140,11 +148,29 @@ exports.login = catchAsync(async (req, res, next) => {
   user.lastLoginAt = Date.now();
   await user.save({ validateBeforeSave: false });
 
+  // Log successful login
+  logger.info(`✅ User logged in: ${user.email}`, {
+    action: 'user_login',
+    userId: user._id,
+    role: user.role,
+    email: user.email,
+  });
+
   // All checks passed - send token and user data
   createSendToken(user, 200, req, res, 'Login successful');
 });
 
 exports.logout = (req, res) => {
+  // Log logout if user is available
+  if (req.user) {
+    logger.info(`✅ User logged out: ${req.user.email}`, {
+      action: 'user_logout',
+      userId: req.user._id,
+      role: req.user.role,
+      email: req.user.email,
+    });
+  }
+
   // Clear JWT cookie by setting it to expired
   res.cookie('jwt', 'loggedOut', {
     expires: new Date(Date.now() - 1000), // Set to past date to immediately expire
@@ -524,6 +550,14 @@ exports.updatePassword = catchAsync(async (req, res, next) => {
   user.passwordConfirm = req.body.passwordConfirm;
   await user.save();
 
+  // Log password change
+  logger.info(`✅ Password changed: ${user.email}`, {
+    action: 'password_change',
+    userId: user._id,
+    role: user.role,
+    email: user.email,
+  });
+
   //4)log user in send the token
   createSendToken(user, 200, req, res);
 });
@@ -783,6 +817,14 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     if (!updatedUser) {
       return next(new AppError('User not found', 404));
     }
+
+    // Log profile update
+    logger.info(`✅ Profile updated: ${updatedUser.email}`, {
+      action: 'profile_update',
+      userId: updatedUser._id,
+      role: updatedUser.role,
+      email: updatedUser.email,
+    });
 
     res.status(200).json({
       status: 'success',

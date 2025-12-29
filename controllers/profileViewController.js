@@ -3,6 +3,7 @@ const User = require('../models/userModel');
 const Notification = require('../models/notificationModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
+const logger = require('../utils/logger');
 
 const POINTS_PER_PROFILE = 10; // Points cost to unlock a profile
 
@@ -85,6 +86,15 @@ exports.unlockProfile = catchAsync(async (req, res, next) => {
     relatedId: jobPostId,
     relatedType: 'JobPost',
     icon: 'info',
+  });
+
+  // Log profile view
+  logger.info(`✅ Profile unlocked: Client ${req.user.email} viewed student ${student.email}`, {
+    action: 'profile_view',
+    clientId: req.user._id,
+    studentId: studentId,
+    jobPostId: jobPostId,
+    pointsSpent: POINTS_PER_PROFILE,
   });
 
   res.status(200).json({

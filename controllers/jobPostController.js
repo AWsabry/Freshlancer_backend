@@ -3,6 +3,7 @@ const JobApplication = require('../models/jobApplicationModel');
 const Category = require('../models/categoryModel');
 const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
+const logger = require('../utils/logger');
 
 // Create a new job post (only clients)
 exports.createJobPost = catchAsync(async (req, res, next) => {
@@ -186,6 +187,15 @@ exports.getAllJobPosts = catchAsync(async (req, res, next) => {
     });
   }
 
+  // Log job browse (for students) or job list view (for clients)
+  logger.info(`✅ Jobs browsed: ${jobPosts.length} jobs found`, {
+    action: req.user.role === 'student' ? 'job_browse' : 'job_list_view',
+    userId: req.user._id,
+    role: req.user.role,
+    count: jobPosts.length,
+    page,
+  });
+
   res.status(200).json({
     status: 'success',
     results: jobPosts.length,
@@ -299,6 +309,15 @@ exports.getJobPost = catchAsync(async (req, res, next) => {
       }
     }
 
+    // Log job view (student)
+    logger.info(`✅ Job viewed: ${jobPost.title}`, {
+      action: 'job_view',
+      userId: req.user._id,
+      role: req.user.role,
+      jobPostId: jobPost._id,
+      isPremium,
+    });
+
     return res.status(200).json({
       status: 'success',
       data: {
@@ -306,6 +325,14 @@ exports.getJobPost = catchAsync(async (req, res, next) => {
       },
     });
   }
+
+  // Log job view (client/admin)
+  logger.info(`✅ Job viewed: ${jobPost.title}`, {
+    action: 'job_view',
+    userId: req.user._id,
+    role: req.user.role,
+    jobPostId: jobPost._id,
+  });
 
   res.status(200).json({
     status: 'success',
@@ -676,6 +703,15 @@ exports.searchJobPosts = catchAsync(async (req, res, next) => {
       });
     }
   }
+
+  // Log job search
+  logger.info(`✅ Jobs searched: "${q}" - ${jobPosts.length} results`, {
+    action: 'job_search',
+    userId: req.user._id,
+    role: req.user.role,
+    query: q,
+    resultsCount: jobPosts.length,
+  });
 
   res.status(200).json({
     status: 'success',

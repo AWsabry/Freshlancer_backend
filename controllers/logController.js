@@ -5,15 +5,19 @@ const logger = require('../utils/logger');
 const AppError = require('../utils/AppError');
 
 /**
- * Log frontend errors to file
- * Only logs errors in production to avoid performance issues
+ * Log frontend actions to file
+ * Logs info, success, warn, and error levels
  */
 exports.logFrontendError = catchAsync(async (req, res, next) => {
-  const { level, message, timestamp, url, userAgent, path: pagePath } = req.body;
+  const { level, message, action, timestamp, url, userAgent, path: pagePath } = req.body;
 
-  // Only log errors in production
-  if (level !== 'error') {
-    return res.status(200).json({ status: 'success', message: 'Non-error logs ignored in production' });
+  // Validate log level
+  const validLevels = ['info', 'success', 'warn', 'error'];
+  if (!validLevels.includes(level)) {
+    return res.status(200).json({ 
+      status: 'success', 
+      message: `Invalid log level: ${level}. Valid levels: ${validLevels.join(', ')}` 
+    });
   }
 
   try {
@@ -21,37 +25,53 @@ exports.logFrontendError = catchAsync(async (req, res, next) => {
     const logDir = path.join(__dirname, '../../logs');
     await fs.mkdir(logDir, { recursive: true });
 
-    // Create log file with date (one file per day)
+    // Create log file with date and level (one file per day per level, or combined)
     const date = new Date().toISOString().split('T')[0];
+    
+    // Option 1: Separate files per level
+    // const logFile = path.join(logDir, `frontend-${level}-${date}.log`);
+    
+    // Option 2: Combined file with all levels (current approach)
     const logFile = path.join(logDir, `frontend-${date}.log`);
 
-    // Format log entry
-    const logEntry = `[${timestamp}] [${level.toUpperCase()}] ${pagePath || url}\n` +
-      `Message: ${message}\n` +
-      `URL: ${url}\n` +
-      `User-Agent: ${userAgent}\n` +
-      `---\n\n`;
+    // Format log entry with action if provided
+    let logEntry = `[${timestamp}] [${level.toUpperCase()}]`;
+    if (action) {
+      logEntry += ` [${action}]`;
+    }
+    logEntry += ` ${pagePath || url}\n`;
+    logEntry += `Message: ${message}\n`;
+    if (url) {
+      logEntry += `URL: ${url}\n`;
+    }
+    if (userAgent) {
+      logEntry += `User-Agent: ${userAgent}\n`;
+    }
+    logEntry += `---\n\n`;
 
     // Append to log file
     await fs.appendFile(logFile, logEntry);
 
     // Also log to server console in development
     if (process.env.NODE_ENV !== 'production') {
-      logger.error(`Frontend Error: ${message}`, { url, pagePath });
+      const logMethod = level === 'error' ? logger.error : 
+                       level === 'warn' ? logger.warn : 
+                       logger.info;
+      logMethod(`Frontend ${level.toUpperCase()}: ${message}`, { url, pagePath, action });
     }
 
     res.status(200).json({
       status: 'success',
-      message: 'Error logged successfully',
+      message: `${level} logged successfully`,
     });
   } catch (error) {
     // Log to server console if file logging fails
-    logger.error('Failed to log frontend error to file:', error);
+    logger.error('Failed to log frontend log to file:', error);
     
     // Still return success to avoid breaking frontend
     res.status(200).json({
       status: 'success',
-      message: 'Error logged (file logging failed)',
+      message: `${level} logged (file logging failed)`,
     });
   }
 });
@@ -345,6 +365,7 @@ function parseLogEntries(content) {
     const entry = {
       timestamp: null,
       level: null,
+      action: null,
       path: null,
       message: null,
       url: null,
@@ -355,10 +376,25 @@ function parseLogEntries(content) {
     for (const line of lines) {
       if (line.startsWith('[') && line.includes(']')) {
         const timestampMatch = line.match(/\[([^\]]+)\]/g);
-        if (timestampMatch && timestampMatch.length >= 2) {
+        if (timestampMatch) {
+          // First bracket is timestamp
           entry.timestamp = timestampMatch[0].replace(/[\[\]]/g, '');
-          entry.level = timestampMatch[1].replace(/[\[\]]/g, '').toUpperCase();
-          entry.path = line.split(']').pop().trim();
+          
+          // Second bracket is level
+          if (timestampMatch.length >= 2) {
+            entry.level = timestampMatch[1].replace(/[\[\]]/g, '').toUpperCase();
+          }
+          
+          // Third bracket (if exists) is action
+          if (timestampMatch.length >= 3) {
+            entry.action = timestampMatch[2].replace(/[\[\]]/g, '');
+          }
+          
+          // Path is everything after the last bracket
+          const lastBracketIndex = line.lastIndexOf(']');
+          if (lastBracketIndex !== -1) {
+            entry.path = line.substring(lastBracketIndex + 1).trim();
+          }
         }
       } else if (line.startsWith('Message:')) {
         entry.message = line.replace('Message:', '').trim();

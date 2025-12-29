@@ -527,6 +527,17 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
             });
 
             console.log('✅ Notification created');
+            
+            // Log subscription purchase success
+            logger.success(`✅ Subscription purchased: ${user.email} upgraded to premium`, {
+              action: 'subscription_purchase',
+              userId: user._id,
+              email: user.email,
+              subscriptionId: subscription._id,
+              transactionId: transaction._id,
+              amount: transaction.amount,
+              currency: transaction.currency,
+            });
           } else {
             console.log('⚠️ Warning: User has no studentProfile');
           }
@@ -570,6 +581,17 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
           });
 
           console.log('✅ Notification created');
+          
+          // Log package purchase success
+          logger.success(`✅ Package purchased: ${user.email} - ${transaction.points} points added`, {
+            action: 'package_purchase',
+            userId: user._id,
+            email: user.email,
+            transactionId: transaction._id,
+            points: transaction.points,
+            amount: transaction.amount,
+            currency: transaction.currency,
+          });
         } else {
           console.log('⚠️ Warning: User has no clientProfile');
         }
@@ -623,6 +645,17 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
             });
             
             console.log('✅ Notification created');
+            
+            // Log donation success
+            logger.success(`✅ Donation received: ${user.email} - ${granting.currency} ${granting.amount}`, {
+              action: 'donation_success',
+              userId: user._id,
+              email: user.email,
+              grantingId: granting._id,
+              transactionId: transaction._id,
+              amount: granting.amount,
+              currency: granting.currency,
+            });
             
             // Send donation confirmation email asynchronously
             sendEmail({
