@@ -100,18 +100,48 @@ studentVerificationSchema.pre(/^find/, function (next) {
 
 // Update student verification status when document is approved
 studentVerificationSchema.post('save', async function () {
+  const User = mongoose.model('User');
+  const student = await User.findById(this.student);
+  
+  if (!student || !student.studentProfile) {
+    return;
+  }
+  
   if (this.status === 'approved') {
-    const User = mongoose.model('User');
-    await User.findByIdAndUpdate(this.student, {
-      'studentProfile.isVerified': true,
-      'studentProfile.verificationStatus': 'verified',
-      'studentProfile.verificationApprovedAt': this.reviewedAt || Date.now(),
-    });
+    // Update verification document status in user's array
+    if (student.studentProfile.verificationDocuments && student.studentProfile.verificationDocuments.length > 0) {
+      const docIndex = student.studentProfile.verificationDocuments.findIndex(
+        doc => doc.documentUrl && doc.documentUrl.includes(this.documentUrl.split('/').pop())
+      );
+      if (docIndex !== -1) {
+        student.studentProfile.verificationDocuments[docIndex].status = 'approved';
+      }
+    }
+    
+    // Set both isVerified and verificationStatus to ensure proper verification
+    student.studentProfile.isVerified = true;
+    student.studentProfile.verificationStatus = 'verified';
+    student.studentProfile.verificationApprovedAt = this.reviewedAt || Date.now();
+    await student.save({ validateBeforeSave: false });
   } else if (this.status === 'rejected') {
-    const User = mongoose.model('User');
-    await User.findByIdAndUpdate(this.student, {
-      'studentProfile.verificationStatus': 'rejected',
-    });
+    // Update verification document status in user's array
+    if (student.studentProfile.verificationDocuments && student.studentProfile.verificationDocuments.length > 0) {
+      const docIndex = student.studentProfile.verificationDocuments.findIndex(
+        doc => doc.documentUrl && doc.documentUrl.includes(this.documentUrl.split('/').pop())
+      );
+      if (docIndex !== -1) {
+        student.studentProfile.verificationDocuments[docIndex].status = 'rejected';
+      }
+    }
+    
+    // Set verificationStatus to rejected, but only set isVerified to false if all documents are rejected
+    student.studentProfile.verificationStatus = 'rejected';
+    // Check if all documents are rejected before setting isVerified to false
+    const hasApprovedDoc = student.studentProfile.verificationDocuments?.some(doc => doc.status === 'approved');
+    if (!hasApprovedDoc) {
+      student.studentProfile.isVerified = false;
+    }
+    await student.save({ validateBeforeSave: false });
   }
 });
 

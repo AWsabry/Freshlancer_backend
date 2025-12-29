@@ -6,6 +6,22 @@ const catchAsync = require('../utils/catchAsync');
 const sendEmail = require('../utils/email');
 const logger = require('../utils/logger');
 
+// Helper function to normalize attachment URLs to full URLs
+const normalizeAttachmentUrls = (attachments, baseUrl) => {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return attachments;
+  }
+  return attachments.map(attachment => {
+    if (attachment.url && !attachment.url.startsWith('http')) {
+      // If URL is relative, make it absolute
+      attachment.url = attachment.url.startsWith('/') 
+        ? `${baseUrl}${attachment.url}` 
+        : `${baseUrl}/${attachment.url}`;
+    }
+    return attachment;
+  });
+};
+
 // Apply for a job (only students)
 exports.applyForJob = catchAsync(async (req, res, next) => {
 
@@ -30,6 +46,7 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   }
 
   // Check verification status - use strict boolean check
+  // Must check BOTH isVerified === true AND verificationStatus === 'verified'
   const isVerified = student.studentProfile.isVerified === true;
   const verificationStatus = student.studentProfile.verificationStatus || 'unverified';
   const allowJobApplications = student.studentProfile.allowJobApplications !== false; // Default to true if not set
@@ -42,15 +59,36 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     isVerifiedType: typeof student.studentProfile.isVerified,
     verificationStatusValue: student.studentProfile.verificationStatus,
     studentProfileExists: !!student.studentProfile,
+    verificationDocuments: student.studentProfile.verificationDocuments?.length || 0,
   });
 
+  // STRICT CHECK: Both isVerified must be true AND verificationStatus must be 'verified'
   if (!isVerified || verificationStatus !== 'verified') {
+    logger.warn('Student verification check failed:', {
+      userId: userId.toString(),
+      isVerified,
+      verificationStatus,
+      message: 'Student is not verified - cannot apply for jobs',
+    });
     return next(
       new AppError(
-        'You must be verified to apply for jobs. Please submit your verification documents from your profile page.',
+        'You must be verified as a student to apply for jobs. Please submit your verification documents from your profile page and wait for admin approval.',
         403
       )
     );
+  }
+  
+  // Additional check: Ensure student has at least one approved verification document
+  const hasApprovedDocument = student.studentProfile.verificationDocuments?.some(
+    doc => doc.status === 'approved'
+  );
+  
+  if (!hasApprovedDocument && (!student.studentProfile.verificationDocuments || student.studentProfile.verificationDocuments.length === 0)) {
+    logger.warn('Student has no approved verification documents:', {
+      userId: userId.toString(),
+      message: 'Student verification status is verified but no documents found',
+    });
+    // Don't block if isVerified is true and status is verified, but log the warning
   }
 
   // Check if student has enabled job applications
@@ -165,9 +203,25 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
     return next(new AppError('Availability commitment is required', 400));
   }
 
+  // Ensure attachments have full URLs if provided
+  let attachments = req.body.attachments || [];
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    attachments = attachments.map(attachment => {
+      // If URL doesn't start with http, prepend base URL
+      if (attachment.url && !attachment.url.startsWith('http')) {
+        attachment.url = attachment.url.startsWith('/') 
+          ? `${baseUrl}${attachment.url}` 
+          : `${baseUrl}/${attachment.url}`;
+      }
+      return attachment;
+    });
+  }
+
   // Create the application
   const applicationData = {
     ...req.body,
+    attachments: attachments, // Use processed attachments with full URLs
     jobPost: req.params.jobId,
     student: userId,
   };
@@ -343,6 +397,16 @@ exports.getMyApplications = catchAsync(async (req, res, next) => {
   // Execute query
   let applications = await mongoQuery;
   const total = await JobApplication.countDocuments(query);
+  
+  // Normalize attachment URLs to full URLs
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  applications = applications.map(app => {
+    const appObj = app.toObject ? app.toObject() : app;
+    if (appObj.attachments && Array.isArray(appObj.attachments)) {
+      appObj.attachments = normalizeAttachmentUrls(appObj.attachments, baseUrl);
+    }
+    return appObj;
+  });
 
   // For students, check subscription and hide client data for free users
   if (req.user.role === 'student') {
@@ -451,10 +515,16 @@ exports.getApplication = catchAsync(async (req, res, next) => {
     application.readByClient = true;
     application.readByClientAt = Date.now();
   }
+  
+  // Normalize attachment URLs to full URLs and convert to object
+  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  let appObj = application.toObject ? application.toObject() : application;
+  if (appObj.attachments && Array.isArray(appObj.attachments)) {
+    appObj.attachments = normalizeAttachmentUrls(appObj.attachments, baseUrl);
+  }
 
   // For clients, hide student data if not unlocked
   if (req.user.role === 'client') {
-    const appObj = application.toObject();
     
     // Get subscriptionTier before potentially hiding student data
     let subscriptionTier = appObj.student?.studentProfile?.subscriptionTier;
@@ -514,7 +584,12 @@ exports.getApplication = catchAsync(async (req, res, next) => {
     });
     const isPremium = subscription?.plan === 'premium';
 
-    const appObj = application.toObject();
+    let appObj = application.toObject ? application.toObject() : application;
+    
+    // Normalize attachment URLs to full URLs
+    if (appObj.attachments && Array.isArray(appObj.attachments)) {
+      appObj.attachments = normalizeAttachmentUrls(appObj.attachments, baseUrl);
+    }
     
     // Hide client data and budget for free plan users
     if (!isPremium) {

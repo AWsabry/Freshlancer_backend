@@ -469,10 +469,23 @@ exports.toggleUserVerification = catchAsync(async (req, res, next) => {
     if (!user.studentProfile) {
       return next(new AppError('Student profile not found', 400));
     }
-    user.studentProfile.isVerified = !user.studentProfile.isVerified;
-    user.studentProfile.verificationStatus = user.studentProfile.isVerified ? 'verified' : 'unverified';
-    if (user.studentProfile.isVerified) {
+    const newVerifiedStatus = !user.studentProfile.isVerified;
+    user.studentProfile.isVerified = newVerifiedStatus;
+    // Ensure both fields are set consistently
+    user.studentProfile.verificationStatus = newVerifiedStatus ? 'verified' : 'unverified';
+    if (newVerifiedStatus) {
       user.studentProfile.verificationApprovedAt = Date.now();
+      // If there are verification documents, mark them as approved
+      if (user.studentProfile.verificationDocuments && user.studentProfile.verificationDocuments.length > 0) {
+        user.studentProfile.verificationDocuments.forEach(doc => {
+          if (doc.status === 'pending') {
+            doc.status = 'approved';
+          }
+        });
+      }
+    } else {
+      // If unverifying, don't change document statuses but ensure verificationStatus is unverified
+      user.studentProfile.verificationStatus = 'unverified';
     }
   } else if (user.role === 'client') {
     if (!user.clientProfile) {
