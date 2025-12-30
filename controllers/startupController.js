@@ -47,6 +47,15 @@ exports.createStartup = catchAsync(async (req, res, next) => {
 
   const startup = await Startup.create(startupData);
 
+  // Set isStartup to true for the user if it's not already set
+  if (!req.user.clientProfile?.isStartup) {
+    await User.findByIdAndUpdate(
+      req.user._id,
+      { 'clientProfile.isStartup': true },
+      { new: true, runValidators: true }
+    );
+  }
+
   res.status(201).json({
     status: 'success',
     data: {
@@ -232,7 +241,12 @@ exports.uploadLogo = catchAsync(async (req, res, next) => {
     return next(new AppError('Startup not found or you do not have permission to update it', 404));
   }
 
-  startup.logo = `/uploads/startup-logos/${req.file.filename}`;
+  // Build full logo URL (use BASE_URL from env or construct from request)
+  // Normalize BASE_URL by removing trailing slash to prevent double slashes
+  const baseUrl = (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  const logoUrl = `${baseUrl}/uploads/startup-logos/${req.file.filename}`;
+
+  startup.logo = logoUrl;
   await startup.save();
 
   res.status(200).json({
