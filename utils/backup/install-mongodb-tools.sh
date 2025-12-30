@@ -38,23 +38,41 @@ install_ubuntu_debian() {
     fi
 }
 
-# Function to install on CentOS/RHEL/Fedora
+# Function to install on CentOS/RHEL/Fedora/AlmaLinux
 install_centos_rhel() {
-    echo "Installing on CentOS/RHEL/Fedora..."
+    echo "Installing on CentOS/RHEL/Fedora/AlmaLinux..."
     
-    if command -v yum &> /dev/null; then
-        echo "Creating MongoDB repository..."
+    # Try dnf first (preferred for newer RHEL-based systems)
+    if command -v dnf &> /dev/null; then
+        echo "Creating MongoDB repository for dnf..."
         sudo tee /etc/yum.repos.d/mongodb-org-7.0.repo > /dev/null <<EOF
 [mongodb-org-7.0]
 name=MongoDB Repository
 baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/7.0/x86_64/
 gpgcheck=1
 enabled=1
-gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc
+gpgkey=https://pgp.mongodb.com/server-7.0.asc
 EOF
-        sudo yum install -y mongodb-database-tools
-    elif command -v dnf &> /dev/null; then
-        sudo dnf install -y mongodb-database-tools
+        echo "Installing mongodb-database-tools via dnf..."
+        sudo dnf install -y mongodb-database-tools || {
+            echo "Package installation failed. Attempting manual installation..."
+            install_manual_linux
+        }
+    elif command -v yum &> /dev/null; then
+        echo "Creating MongoDB repository for yum..."
+        sudo tee /etc/yum.repos.d/mongodb-org-7.0.repo > /dev/null <<EOF
+[mongodb-org-7.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/\$releasever/mongodb-org/7.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://pgp.mongodb.com/server-7.0.asc
+EOF
+        echo "Installing mongodb-database-tools via yum..."
+        sudo yum install -y mongodb-database-tools || {
+            echo "Package installation failed. Attempting manual installation..."
+            install_manual_linux
+        }
     else
         install_manual_linux
     fi
@@ -98,22 +116,55 @@ install_manual_linux() {
         PLATFORM="linux-${ARCH}"
     fi
     
-    VERSION="100.9.1"
-    DOWNLOAD_URL="https://fastdl.mongodb.org/tools/db/mongodb-database-tools-${PLATFORM}-${VERSION}.tgz"
-    
-    echo "Downloading from: $DOWNLOAD_URL"
+    # Try latest stable version - MongoDB database tools versioning
+    # If this fails, we'll try alternative versions
+    VERSIONS=("100.9.4" "100.9.1" "100.8.0" "100.7.0")
+    DOWNLOAD_SUCCESS=false
     
     # Create temporary directory
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR"
     
-    # Download
-    if command -v wget &> /dev/null; then
-        wget "$DOWNLOAD_URL" -O mongodb-tools.tgz
-    elif command -v curl &> /dev/null; then
-        curl -L "$DOWNLOAD_URL" -o mongodb-tools.tgz
-    else
-        echo "Error: Neither wget nor curl is installed"
+    # Try downloading with different versions
+    for VERSION in "${VERSIONS[@]}"; do
+        DOWNLOAD_URL="https://fastdl.mongodb.org/tools/db/mongodb-database-tools-${PLATFORM}-${VERSION}.tgz"
+        echo "Attempting to download version $VERSION from: $DOWNLOAD_URL"
+        
+        # Download with user-agent header to avoid 403 errors
+        if command -v wget &> /dev/null; then
+            if wget --user-agent="Mozilla/5.0" "$DOWNLOAD_URL" -O mongodb-tools.tgz 2>&1; then
+                # Check if file was downloaded and is not empty
+                if [ -f mongodb-tools.tgz ] && [ -s mongodb-tools.tgz ]; then
+                    DOWNLOAD_SUCCESS=true
+                    break
+                else
+                    echo "Download failed or file is empty, trying next version..."
+                    rm -f mongodb-tools.tgz
+                fi
+            else
+                echo "Download failed, trying next version..."
+                rm -f mongodb-tools.tgz
+            fi
+        elif command -v curl &> /dev/null; then
+            HTTP_CODE=$(curl -L --user-agent "Mozilla/5.0" -o mongodb-tools.tgz -w "%{http_code}" "$DOWNLOAD_URL" 2>/dev/null)
+            if [ "$HTTP_CODE" = "200" ] && [ -f mongodb-tools.tgz ] && [ -s mongodb-tools.tgz ]; then
+                DOWNLOAD_SUCCESS=true
+                break
+            else
+                echo "Download failed (HTTP $HTTP_CODE), trying next version..."
+                rm -f mongodb-tools.tgz
+            fi
+        else
+            echo "Error: Neither wget nor curl is installed"
+            exit 1
+        fi
+    done
+    
+    if [ "$DOWNLOAD_SUCCESS" = false ]; then
+        echo "❌ Failed to download MongoDB database tools from all attempted URLs."
+        echo "Please visit https://www.mongodb.com/try/download/database-tools to download manually."
+        cd -
+        rm -rf "$TEMP_DIR"
         exit 1
     fi
     
@@ -136,7 +187,7 @@ case "$OS" in
     ubuntu|debian)
         install_ubuntu_debian
         ;;
-    centos|rhel|fedora)
+    centos|rhel|fedora|almalinux|rocky)
         install_centos_rhel
         ;;
     *)

@@ -16,12 +16,7 @@ process.on('uncaughtException', (err) => {
 const app = require('./app');
 
 mongoose
-  .connect(process.env.DATABASE, {
-    useNewUrlParser: true,
-    useCreateIndex: true,
-    useUnifiedTopology: true,
-    useFindAndModify: false,
-  })
+  .connect(process.env.DATABASE)
   .then(() => {
     console.log('DB connected successfully');
     

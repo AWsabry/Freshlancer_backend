@@ -50,7 +50,8 @@ exports.uploadDocument = catchAsync(async (req, res, next) => {
   }
 
   // Build full document URL (use BASE_URL from env or construct from request)
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  // Normalize BASE_URL by removing trailing slash to prevent double slashes
+  const baseUrl = (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   const documentUrl = `${baseUrl}/uploads/verification-documents/${req.file.filename}`;
 
   const verificationData = {
