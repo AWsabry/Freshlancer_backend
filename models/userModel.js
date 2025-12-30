@@ -32,13 +32,29 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: [true, 'user must have a password'],
-    minlength: [8, 'password must have more or equal then 8 characters'],
+    minlength: [12, 'password must have at least 12 characters'],
+    validate: {
+      validator: function (val) {
+        // At least 12 characters
+        if (val.length < 12) return false;
+        // At least one lowercase letter
+        if (!/[a-z]/.test(val)) return false;
+        // At least one uppercase letter
+        if (!/[A-Z]/.test(val)) return false;
+        // At least one number
+        if (!/[0-9]/.test(val)) return false;
+        // At least one special character
+        if (!/[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(val)) return false;
+        return true;
+      },
+      message: 'Password must be at least 12 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)',
+    },
     select: false,
   },
   passwordConfirm: {
     type: String,
     required: [true, 'user must have a password'],
-    minlength: [8, 'password must have more or equal then 8 characters'],
+    minlength: [12, 'password must have at least 12 characters'],
     select: false,
     validate: {
       validator: function (val) {
