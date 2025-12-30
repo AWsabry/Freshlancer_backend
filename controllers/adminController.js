@@ -32,17 +32,17 @@ exports.getAllUsers = catchAsync(async (req, res, next) => {
     ];
   }
 
-  // Date range filter (filter by createdAt)
+  // Date range filter (filter by joinedAt)
   if (startDate || endDate) {
-    query.createdAt = {};
+    query.joinedAt = {};
     if (startDate) {
-      query.createdAt.$gte = new Date(startDate);
+      query.joinedAt.$gte = new Date(startDate);
     }
     if (endDate) {
       // Include the entire end date by setting time to end of day
       const endDateTime = new Date(endDate);
       endDateTime.setHours(23, 59, 59, 999);
-      query.createdAt.$lte = endDateTime;
+      query.joinedAt.$lte = endDateTime;
     }
   }
 
@@ -51,7 +51,7 @@ exports.getAllUsers = catchAsync(async (req, res, next) => {
   const [users, totalCount] = await Promise.all([
     User.find(query)
       .select('-password -passwordResetToken -emailVerificationToken')
-      .sort('-createdAt')
+      .sort('-joinedAt')
       .skip(skip)
       .limit(parseInt(limit)),
     User.countDocuments(query),
@@ -266,8 +266,8 @@ exports.getDashboardStats = catchAsync(async (req, res, next) => {
     JobPost.countDocuments({ status: 'open' }),
     JobApplication.countDocuments({ status: 'pending' }),
     User.find()
-      .select('name email role createdAt')
-      .sort('-createdAt')
+      .select('name email role joinedAt')
+      .sort('-joinedAt')
       .limit(10),
     // Count students with active premium subscriptions
     Subscription.countDocuments({ status: 'active', plan: 'premium' }),

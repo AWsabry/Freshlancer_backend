@@ -463,6 +463,86 @@ exports.getMyApplications = catchAsync(async (req, res, next) => {
     }
   });
 
+  // For clients, fetch university and nationality directly from database since they're not in populated studentProfile
+  if (req.user.role === 'client' && applications.length > 0) {
+    try {
+      // Get all unique student IDs from applications
+      const studentIds = applications
+        .map(app => {
+          const student = app.student;
+          return student?._id || student;
+        })
+        .filter(id => id)
+        .map(id => id.toString ? id.toString() : id);
+      
+      // Fetch university, nationality, and subscriptionTier for all students in one query
+      const User = require('../models/userModel');
+      const studentsData = await User.find({
+        _id: { $in: studentIds }
+      }).select('_id nationality studentProfile.university studentProfile.subscriptionTier').lean();
+      
+      // Create a map: studentId -> { university, nationality, subscriptionTier }
+      const studentDataMap = {};
+      studentsData.forEach(student => {
+        const studentId = student._id.toString();
+        studentDataMap[studentId] = {
+          university: student.studentProfile?.university || null,
+          nationality: student.nationality || null,
+          subscriptionTier: student.studentProfile?.subscriptionTier || null
+        };
+      });
+      
+      // Add university to each application's student data
+      applications = applications.map((app) => {
+        try {
+          const appObj = app && typeof app === 'object' ? { ...app } : app;
+          
+          if (appObj.student) {
+            const studentId = (appObj.student._id?.toString() || appObj.student.toString());
+            const studentData = studentDataMap[studentId] || {};
+            const university = studentData.university;
+            const nationality = studentData.nationality;
+            const subscriptionTier = studentData.subscriptionTier || appObj.student?.studentProfile?.subscriptionTier;
+            
+            // If student is locked, preserve university, nationality, and subscriptionTier
+            if (!appObj.contactUnlockedByClient) {
+              appObj.student = {
+                ...appObj.student,
+                ...(nationality ? { nationality } : {}),
+                studentProfile: {
+                  ...(subscriptionTier ? { subscriptionTier } : {}),
+                  ...(university ? { university } : {})
+                }
+              };
+            } else {
+              // If unlocked, ensure studentProfile has university and nationality
+              if (!appObj.student.studentProfile) {
+                appObj.student.studentProfile = {};
+              }
+              if (university) {
+                appObj.student.studentProfile.university = university;
+              }
+              if (nationality && !appObj.student.nationality) {
+                appObj.student.nationality = nationality;
+              }
+              if (subscriptionTier && !appObj.student.studentProfile.subscriptionTier) {
+                appObj.student.studentProfile.subscriptionTier = subscriptionTier;
+              }
+            }
+          }
+          
+          return appObj;
+        } catch (err) {
+          logger.error('Error preserving university for student:', { error: err.message, appId: app._id });
+          return app;
+        }
+      });
+    } catch (err) {
+      logger.error('Error fetching university for students:', { error: err.message });
+      // Continue without university if fetch fails
+    }
+  }
+
   // For students, check subscription and hide client data for free users
   if (req.user.role === 'student') {
     let isPremium = false;
@@ -589,43 +669,77 @@ exports.getApplication = catchAsync(async (req, res, next) => {
   // For clients, hide student data if not unlocked
   if (req.user.role === 'client') {
     
-    // Get subscriptionTier before potentially hiding student data
+    // Fetch university and nationality directly from database since they're not in populated studentProfile
+    let university = null;
+    let nationality = null;
     let subscriptionTier = appObj.student?.studentProfile?.subscriptionTier;
     
-    // Fallback: If subscriptionTier is missing, check Subscription model
-    if (!subscriptionTier && appObj.student?._id) {
-      const Subscription = require('../models/subscriptionModel');
-      const subscription = await Subscription.findOne({
-        student: appObj.student._id,
-        status: 'active',
-        plan: 'premium'
-      });
-      subscriptionTier = subscription ? 'premium' : 'free';
+    if (appObj.student?._id) {
+      try {
+        const User = require('../models/userModel');
+        const studentData = await User.findById(appObj.student._id)
+          .select('nationality studentProfile.university studentProfile.subscriptionTier')
+          .lean();
+        
+        university = studentData?.studentProfile?.university || null;
+        nationality = studentData?.nationality || null;
+        if (!subscriptionTier) {
+          subscriptionTier = studentData?.studentProfile?.subscriptionTier || null;
+        }
+        
+        // Fallback: If subscriptionTier is missing, check Subscription model
+        if (!subscriptionTier) {
+          const Subscription = require('../models/subscriptionModel');
+          const subscription = await Subscription.findOne({
+            student: appObj.student._id,
+            status: 'active',
+            plan: 'premium'
+          });
+          subscriptionTier = subscription ? 'premium' : 'free';
+        }
+      } catch (err) {
+        logger.error('Error fetching university and nationality for student:', { error: err.message, studentId: appObj.student._id });
+      }
     }
     
     // Check if student contact is unlocked
     if (!appObj.contactUnlockedByClient) {
-      // Student is locked - hide all student data but keep subscriptionTier for premium badge
+      // Student is locked - hide sensitive student data but keep university, nationality, and subscriptionTier
       appObj.student = {
         message: 'Student is Locked',
-        studentProfile: subscriptionTier ? { subscriptionTier } : undefined
+        ...(nationality ? { nationality } : {}),
+        studentProfile: {
+          ...(subscriptionTier ? { subscriptionTier } : {}),
+          ...(university ? { university } : {})
+        }
       };
     } else {
-      // If unlocked, remove password and appliedJobs from student data but keep subscriptionTier
+      // If unlocked, remove password and appliedJobs from student data but keep subscriptionTier, university, and nationality
       if (appObj.student) {
         delete appObj.student.password;
+        // Ensure nationality is set (use fetched value if missing)
+        if (!appObj.student.nationality && nationality) {
+          appObj.student.nationality = nationality;
+        }
         if (appObj.student.studentProfile) {
           // Ensure subscriptionTier is set (use fallback if missing)
           if (!appObj.student.studentProfile.subscriptionTier && subscriptionTier) {
             appObj.student.studentProfile.subscriptionTier = subscriptionTier;
           }
+          // Ensure university is set (use fetched value if missing)
+          if (!appObj.student.studentProfile.university && university) {
+            appObj.student.studentProfile.university = university;
+          }
           // Remove sensitive fields but keep the rest
           if (appObj.student.studentProfile.appliedJobs) {
             delete appObj.student.studentProfile.appliedJobs;
           }
-        } else if (subscriptionTier) {
-          // If studentProfile doesn't exist but we have subscriptionTier, create it
-          appObj.student.studentProfile = { subscriptionTier };
+        } else {
+          // If studentProfile doesn't exist, create it with subscriptionTier and university
+          appObj.student.studentProfile = {
+            ...(subscriptionTier ? { subscriptionTier } : {}),
+            ...(university ? { university } : {})
+          };
         }
       }
     }
@@ -1432,6 +1546,11 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     matchStage['student.nationality'] = req.query.nationality;
   }
 
+  // Filter by university
+  if (req.query.university) {
+    matchStage['student.studentProfile.university'] = req.query.university;
+  }
+
   // Filter by subscription tier
   if (req.query.subscriptionTier) {
     matchStage['student.studentProfile.subscriptionTier'] = req.query.subscriptionTier;
@@ -1475,30 +1594,48 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   // Execute aggregation
   let applications = await JobApplication.aggregate(pipeline);
 
-  // Get all student IDs to check subscription status if subscriptionTier is missing
+  // Get all student IDs to fetch university and subscription status
   const studentIds = [...new Set(applications.map(app => app.student?._id).filter(Boolean))];
   const Subscription = require('../models/subscriptionModel');
+  const User = require('../models/userModel');
+  
+  // Fetch active subscriptions for premium status
   const activeSubscriptions = await Subscription.find({
     student: { $in: studentIds },
     status: 'active',
     plan: 'premium'
   }).select('student plan');
   
-  // Create a map of student IDs to premium status
+  // Fetch university and nationality for all students
+  const studentsWithData = await User.find({
+    _id: { $in: studentIds }
+  }).select('_id nationality studentProfile.university studentProfile.subscriptionTier').lean();
+  
+  // Create maps for quick lookup
   const premiumStudentMap = new Map();
   activeSubscriptions.forEach(sub => {
     premiumStudentMap.set(sub.student.toString(), true);
   });
+  
+  const universityMap = new Map();
+  const nationalityMap = new Map();
+  studentsWithData.forEach(student => {
+    const studentId = student._id.toString();
+    universityMap.set(studentId, student.studentProfile?.university || null);
+    nationalityMap.set(studentId, student.nationality || null);
+  });
 
-  // Hide student data for applications that are not unlocked, but keep subscriptionTier for premium badge
+  // Hide student data for applications that are not unlocked, but keep subscriptionTier and university
   applications = applications.map((app) => {
     // Check if student contact is unlocked
     // contactUnlockedByClient defaults to false, so check explicitly
     let subscriptionTier = app.student?.studentProfile?.subscriptionTier;
+    const studentId = app.student?._id?.toString();
+    const university = universityMap.get(studentId) || app.student?.studentProfile?.university || null;
+    const nationality = nationalityMap.get(studentId) || app.student?.nationality || null;
     
     // Fallback: If subscriptionTier is missing, check Subscription model
-    if (!subscriptionTier && app.student?._id) {
-      const studentId = app.student._id.toString();
+    if (!subscriptionTier && studentId) {
       if (premiumStudentMap.has(studentId)) {
         subscriptionTier = 'premium';
       } else {
@@ -1507,28 +1644,43 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     }
     
     if (!app.contactUnlockedByClient || app.contactUnlockedByClient === false) {
-      // Student is locked - hide all student data but keep subscriptionTier for premium badge
+      // Student is locked - hide all student data but keep subscriptionTier, university, and nationality
       app.student = {
         message: 'Student is Locked',
-        studentProfile: subscriptionTier ? { subscriptionTier } : undefined
+        ...(nationality ? { nationality } : {}),
+        studentProfile: {
+          ...(subscriptionTier ? { subscriptionTier } : {}),
+          ...(university ? { university } : {})
+        }
       };
     } else {
-      // If unlocked, remove password and sensitive data but keep all studentProfile data including subscriptionTier
+      // If unlocked, remove password and sensitive data but keep all studentProfile data including subscriptionTier and university
       if (app.student) {
         delete app.student.password;
+        // Ensure nationality is set (use fetched value if missing)
+        if (!app.student.nationality && nationality) {
+          app.student.nationality = nationality;
+        }
         if (app.student.studentProfile) {
           // Ensure subscriptionTier is set (use fallback if missing)
           if (!app.student.studentProfile.subscriptionTier && subscriptionTier) {
             app.student.studentProfile.subscriptionTier = subscriptionTier;
+          }
+          // Ensure university is set (use fetched value if missing)
+          if (!app.student.studentProfile.university && university) {
+            app.student.studentProfile.university = university;
           }
           // Remove sensitive fields but keep the rest of studentProfile
           delete app.student.studentProfile.appliedJobs;
           delete app.student.studentProfile.resume;
           delete app.student.studentProfile.verificationDocuments;
           delete app.student.studentProfile.additionalDocuments;
-        } else if (subscriptionTier) {
-          // If studentProfile doesn't exist but we have subscriptionTier, create it
-          app.student.studentProfile = { subscriptionTier };
+        } else {
+          // If studentProfile doesn't exist, create it with subscriptionTier and university
+          app.student.studentProfile = {
+            ...(subscriptionTier ? { subscriptionTier } : {}),
+            ...(university ? { university } : {})
+          };
         }
       }
     }
@@ -1551,6 +1703,22 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     { $sort: { _id: 1 } },
   ]);
 
+  // Get unique universities for filter dropdown
+  const uniqueUniversities = await JobApplication.aggregate([
+    { $match: { jobPost: jobPost._id } },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'student',
+        foreignField: '_id',
+        as: 'studentData',
+      },
+    },
+    { $unwind: '$studentData' },
+    { $group: { _id: '$studentData.studentProfile.university' } },
+    { $sort: { _id: 1 } },
+  ]);
+
   res.status(200).json({
     status: 'success',
     results: applications.length,
@@ -1563,6 +1731,7 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     data: {
       applications,
       uniqueNationalities: uniqueNationalities.map((n) => n._id).filter(Boolean),
+      uniqueUniversities: uniqueUniversities.map((u) => u._id).filter(Boolean),
     },
   });
 });
