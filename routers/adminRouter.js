@@ -4,6 +4,7 @@ const authController = require('../controllers/auth/authController');
 const adminController = require('../controllers/adminController');
 const analyticsController = require('../controllers/analyticsController');
 const logController = require('../controllers/logController');
+const universityController = require('../controllers/universityController');
 
 // Protect all routes and restrict to admin only
 router.use(authController.protect);
@@ -48,6 +49,14 @@ router.get('/jobs', adminController.getAllJobs);
 // Log management routes
 router.get('/logs/files', logController.getLogFiles);
 router.get('/logs/stats', logController.getLogStats);
+
+// University management routes
+router.get('/universities', universityController.getAllUniversitiesAdmin);
+router.post('/universities', universityController.createUniversity);
+router.patch('/universities/:id/approve', universityController.approveUniversity);
+router.patch('/universities/:id/reject', universityController.rejectUniversity);
+router.patch('/universities/:id', universityController.updateUniversity);
+router.delete('/universities/:id', universityController.deleteUniversity);
 router.get('/logs/:date', logController.getLogFileContent);
 router.delete('/logs/:date', logController.deleteLogFile);
 
