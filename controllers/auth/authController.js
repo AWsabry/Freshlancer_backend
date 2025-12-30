@@ -75,7 +75,7 @@ exports.signup = catchAsync(async (req, res, next) => {
   }
 
   // Prepare user data based on role
-  const userData = prepareUserData(req, next);
+  const userData = await prepareUserData(req, next);
   if (!userData) return; // Error already handled in prepareUserData
 
   // Create user
@@ -563,7 +563,10 @@ exports.updatePassword = catchAsync(async (req, res, next) => {
 });
 
 exports.getMe = catchAsync(async (req, res, next) => {
-  let user = await User.findById(req.user.id);
+  let user = await User.findById(req.user.id).populate({
+    path: 'studentProfile.university',
+    select: 'name status countryCode',
+  });
 
   if (!user) {
     return next(new AppError('User not found', 404));
@@ -574,8 +577,11 @@ exports.getMe = catchAsync(async (req, res, next) => {
     const { syncApplicationCount } = require('../../utils/applicationCounter');
     await syncApplicationCount(user._id);
     
-    // Refresh user to get updated count
-    user = await User.findById(req.user.id);
+    // Refresh user to get updated count (with population)
+    user = await User.findById(req.user.id).populate({
+      path: 'studentProfile.university',
+      select: 'name status countryCode',
+    });
   }
 
   // Ensure password is not included in response (already excluded by select: false, but be explicit)

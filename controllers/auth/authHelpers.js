@@ -2,6 +2,7 @@ const AppError = require('../../utils/AppError');
 const { getCurrencyByCountry } = require('../../utils/payment/currencyRates');
 const { getFrontendUrl, handleEmailError } = require('../../utils/helpers');
 const sendEmail = require('../../utils/email');
+const University = require('../../models/universityModel');
 
 /**
  * Prepare base user data for registration
@@ -24,7 +25,7 @@ const prepareBaseUserData = (req) => {
 /**
  * Validate and prepare student-specific data
  */
-const prepareStudentData = (baseData, req, next) => {
+const prepareStudentData = async (baseData, req, next) => {
   const required = ['phone', 'nationality', 'gender'];
   for (const field of required) {
     if (!req.body[field]) {
@@ -65,8 +66,23 @@ const prepareStudentData = (baseData, req, next) => {
   if (req.body.studentProfile) {
     const sp = req.body.studentProfile;
     
+    // Find university by name and save its ID (one-to-one relation)
     if (sp.university?.trim()) {
-      baseData.studentProfile.university = sp.university.trim();
+      const universityName = sp.university.trim();
+      // Try to find existing university by name (case-insensitive)
+      const university = await University.findOne({
+        name: { $regex: new RegExp(`^${universityName}$`, 'i') },
+      });
+      
+      if (university) {
+        // University exists, save its ID
+        baseData.studentProfile.university = university._id;
+      } else {
+        // University doesn't exist yet (will be created after registration)
+        // For now, we'll save it as null and update it after the custom university is created
+        // This will be handled in the registration flow after user creation
+        baseData.studentProfile.university = null;
+      }
     }
     if (sp.major?.trim()) {
       baseData.studentProfile.major = sp.major.trim();
@@ -197,11 +213,11 @@ const prepareOtherRoleData = (baseData, req) => {
 /**
  * Prepare user data based on role
  */
-const prepareUserData = (req, next) => {
+const prepareUserData = async (req, next) => {
   const baseData = prepareBaseUserData(req);
 
   if (req.body.role === 'student') {
-    return prepareStudentData(baseData, req, next);
+    return await prepareStudentData(baseData, req, next);
   } else if (req.body.role === 'client') {
     return prepareClientData(baseData, req);
   } else {

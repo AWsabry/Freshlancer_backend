@@ -157,9 +157,10 @@ const userSchema = new mongoose.Schema({
     skills: [String],
 
     // University and graduation year (from registration)
+    // Reference to University model (one-to-one relation)
     university: {
-      type: String,
-      trim: true,
+      type: mongoose.Schema.ObjectId,
+      ref: 'University',
     },
     universityLink: {
       type: String,

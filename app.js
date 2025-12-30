@@ -24,6 +24,7 @@ const couponRouter = require('./routers/couponRouter');
 const startupRouter = require('./routers/startupRouter');
 const contactRouter = require('./routers/contactRouter');
 const categoryRouter = require('./routers/categoryRouter');
+const universityRouter = require('./routers/universityRouter');
 const grantingRouter = require('./routers/grantingRouter');
 const logRouter = require('./routers/logRouter');
 const AppError = require('./utils/AppError');
@@ -73,7 +74,7 @@ app.use('/uploads', (req, res, next) => {
     return res.sendStatus(200);
   }
   next();
-}, express.static('uploads'));
+}, express.static('uploads')  );
 
 app.use((req, res, next) => {
   req.requestTime = new Date().toISOString();
@@ -193,6 +194,7 @@ app.use('/api/v1/coupons', couponRouter);
 app.use('/api/v1/startups', startupRouter);
 app.use('/api/v1/contacts', contactRouter);
 app.use('/api/v1/categories', categoryRouter);
+app.use('/api/v1/universities', universityRouter);
 app.use('/api/v1/grantings', grantingRouter);
 app.use('/api/v1/logs', logRouter);
 
