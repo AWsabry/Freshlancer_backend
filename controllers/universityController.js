@@ -288,6 +288,32 @@ exports.createUniversity = catchAsync(async (req, res, next) => {
   });
 });
 
+// Get single university (admin) - with full populated data
+exports.getUniversityAdmin = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+
+  const university = await University.findById(id)
+    .populate({
+      path: 'addedBy',
+      select: 'name email',
+    })
+    .populate({
+      path: 'approvedBy',
+      select: 'name email',
+    });
+
+  if (!university) {
+    return next(new AppError('No university found with that ID', 404));
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      university,
+    },
+  });
+});
+
 // Update university (admin)
 exports.updateUniversity = catchAsync(async (req, res, next) => {
   const { id } = req.params;

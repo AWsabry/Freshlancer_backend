@@ -33,7 +33,6 @@ router.get('/users', adminController.getAllUsers);
 router.get('/users/:id', adminController.getUserById);
 router.patch('/users/:id/suspend', adminController.toggleUserSuspension);
 router.patch('/users/:id/verify', adminController.toggleUserVerification);
-router.patch('/users/:id/role', adminController.updateUserRole);
 router.delete('/users/:id', adminController.deleteUser);
 
 // Student verification management
@@ -53,6 +52,7 @@ router.get('/logs/stats', logController.getLogStats);
 
 // University management routes
 router.get('/universities', universityController.getAllUniversitiesAdmin);
+router.get('/universities/:id', universityController.getUniversityAdmin);
 router.post('/universities', universityController.createUniversity);
 router.patch('/universities/:id/approve', universityController.approveUniversity);
 router.patch('/universities/:id/reject', universityController.rejectUniversity);
