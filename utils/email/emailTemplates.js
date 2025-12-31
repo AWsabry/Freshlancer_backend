@@ -354,6 +354,120 @@ const EMAIL_TEMPLATES = {
   /**
    * Donation confirmation email template
    */
+  'verification-approved': (options) => {
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
+
+    return {
+      subject: '✅ Your Student Verification Has Been Approved!',
+      content: createEmailWrapper(`
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+        </div>
+        ${createHeader('Verification Approved! ✅')}
+        ${createGreeting(options.name)}
+        ${createParagraph('Great news! Your student verification has been reviewed and approved by our team. You can now start applying for jobs on Freshlancer!')}
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 30px 0;">
+          <tr>
+            <td style="padding: 20px; background: ${BRAND_COLORS.primary}10; border-left: 4px solid ${BRAND_COLORS.primary}; border-radius: 8px;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 18px; font-weight: 600; text-align: center;">
+                🎉 What This Means for You
+              </p>
+              ${createInfoBox([
+                'You can now apply for job postings',
+                'Your profile is verified and trusted by clients',
+                'Increased visibility in search results',
+                'Access to premium features and opportunities',
+              ])}
+            </td>
+          </tr>
+        </table>
+        ${options.adminNotes ? `
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 30px 0;">
+            <tr>
+              <td style="padding: 15px; background: #f0f9ff; border-left: 4px solid #0ea5e9; border-radius: 8px;">
+                <p style="margin: 0 0 10px 0; color: #0c4a6e; font-size: 14px; font-weight: 600;">
+                  Admin Notes:
+                </p>
+                <p style="margin: 0; color: #075985; font-size: 14px; line-height: 1.6;">
+                  ${options.adminNotes}
+                </p>
+              </td>
+            </tr>
+          </table>
+        ` : ''}
+        <p style="color: ${BRAND_COLORS.text}; font-size: 17px; line-height: 1.7; margin: 30px 0; text-align: center; font-weight: 500;">
+          Ready to start applying? Browse available jobs and take your freelancing journey to the next level!
+        </p>
+        ${createEmailButton(options.dashboardUrl || 'https://freshlancer.online/student/jobs', 'Browse Jobs')}
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          If you have any questions, please don't hesitate to contact our support team.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
+  },
+  'verification-rejected': (options) => {
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
+
+    return {
+      subject: '⚠️ Student Verification Update - Action Required',
+      content: createEmailWrapper(`
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+        </div>
+        ${createHeader('Verification Review Update')}
+        ${createGreeting(options.name)}
+        ${createParagraph('We\'ve reviewed your student verification documents, and unfortunately, we need some additional information or corrections before we can approve your verification.')}
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 30px 0;">
+          <tr>
+            <td style="padding: 20px; background: #fef2f2; border-left: 4px solid #ef4444; border-radius: 8px;">
+              <p style="margin: 0 0 15px 0; color: #dc2626; font-size: 18px; font-weight: 600; text-align: center;">
+                📋 Rejection Reason
+              </p>
+              <p style="margin: 0; color: #991b1b; font-size: 15px; line-height: 1.7;">
+                ${options.rejectionReason || 'Please review your documents and ensure they meet our verification requirements.'}
+              </p>
+            </td>
+          </tr>
+        </table>
+        ${options.adminNotes ? `
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 30px 0;">
+            <tr>
+              <td style="padding: 15px; background: #f0f9ff; border-left: 4px solid #0ea5e9; border-radius: 8px;">
+                <p style="margin: 0 0 10px 0; color: #0c4a6e; font-size: 14px; font-weight: 600;">
+                  Admin Notes:
+                </p>
+                <p style="margin: 0; color: #075985; font-size: 14px; line-height: 1.6;">
+                  ${options.adminNotes}
+                </p>
+              </td>
+            </tr>
+          </table>
+        ` : ''}
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 30px 0;">
+          <tr>
+            <td style="padding: 20px; background: ${BRAND_COLORS.primary}10; border-left: 4px solid ${BRAND_COLORS.primary}; border-radius: 8px;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 18px; font-weight: 600; text-align: center;">
+                ✨ Next Steps
+              </p>
+              ${createInfoBox([
+                'Review the rejection reason above',
+                'Update your verification documents if needed',
+                'Resubmit your verification request',
+                'Ensure all documents are clear and valid',
+              ])}
+            </td>
+          </tr>
+        </table>
+        <p style="color: ${BRAND_COLORS.text}; font-size: 17px; line-height: 1.7; margin: 30px 0; text-align: center; font-weight: 500;">
+          You can resubmit your verification documents at any time.
+        </p>
+        ${createEmailButton(options.verificationUrl || 'https://freshlancer.online/student/verification', 'Resubmit Verification')}
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          If you have any questions about the rejection reason or need assistance, please contact our support team.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
+  },
   'donation-confirmation': (options) => {
     const donationInfo = [
       { label: 'Amount', value: `${options.currency} ${options.amount}` },
