@@ -475,11 +475,18 @@ exports.getMyApplications = catchAsync(async (req, res, next) => {
         .filter(id => id)
         .map(id => id.toString ? id.toString() : id);
       
-      // Fetch university, nationality, and subscriptionTier for all students in one query
+      // Fetch university, nationality, and subscriptionTier for all students in one query (populate university to get name)
       const User = require('../models/userModel');
+      const University = require('../models/universityModel');
       const studentsData = await User.find({
         _id: { $in: studentIds }
-      }).select('_id nationality studentProfile.university studentProfile.subscriptionTier').lean();
+      })
+        .select('_id nationality studentProfile.university studentProfile.subscriptionTier')
+        .populate({
+          path: 'studentProfile.university',
+          select: 'name status countryCode',
+        })
+        .lean();
       
       // Create a map: studentId -> { university, nationality, subscriptionTier }
       const studentDataMap = {};
@@ -621,6 +628,10 @@ exports.getApplication = catchAsync(async (req, res, next) => {
     .populate({
       path: 'student',
       select: '-password', // Exclude password
+      populate: {
+        path: 'studentProfile.university',
+        select: 'name status countryCode',
+      },
     });
 
   if (!application) {
@@ -676,13 +687,36 @@ exports.getApplication = catchAsync(async (req, res, next) => {
     
     if (appObj.student?._id) {
       try {
-        const User = require('../models/userModel');
-        const studentData = await User.findById(appObj.student._id)
-          .select('nationality studentProfile.university studentProfile.subscriptionTier')
-          .lean();
+        // Check if university is already populated from initial query
+        const existingUniversity = appObj.student?.studentProfile?.university;
+        const isUniversityPopulated = existingUniversity && 
+          typeof existingUniversity === 'object' && 
+          existingUniversity.name;
         
-        university = studentData?.studentProfile?.university || null;
-        nationality = studentData?.nationality || null;
+        // Only fetch if university is not already populated
+        if (!isUniversityPopulated) {
+          const User = require('../models/userModel');
+          const University = require('../models/universityModel');
+          const studentData = await User.findById(appObj.student._id)
+            .select('nationality studentProfile.university studentProfile.subscriptionTier')
+            .populate({
+              path: 'studentProfile.university',
+              select: 'name status countryCode',
+            })
+            .lean();
+          
+          university = studentData?.studentProfile?.university || null;
+        } else {
+          // Use the already populated university
+          university = existingUniversity;
+        }
+        
+        // Always fetch nationality (it's not a reference, so it won't be populated)
+        const User = require('../models/userModel');
+        const studentDataForNationality = await User.findById(appObj.student._id)
+          .select('nationality')
+          .lean();
+        nationality = studentDataForNationality?.nationality || null;
         if (!subscriptionTier) {
           subscriptionTier = studentData?.studentProfile?.subscriptionTier || null;
         }
@@ -726,9 +760,15 @@ exports.getApplication = catchAsync(async (req, res, next) => {
           if (!appObj.student.studentProfile.subscriptionTier && subscriptionTier) {
             appObj.student.studentProfile.subscriptionTier = subscriptionTier;
           }
-          // Ensure university is set (use fetched value if missing)
-          if (!appObj.student.studentProfile.university && university) {
-            appObj.student.studentProfile.university = university;
+          // Ensure university is set (use fetched populated value if missing or if current is just an ID)
+          if (university) {
+            // If current university is just an ID or missing, use the populated one
+            const currentUniversity = appObj.student.studentProfile.university;
+            if (!currentUniversity || 
+                (typeof currentUniversity === 'string' && /^[0-9a-fA-F]{24}$/.test(currentUniversity)) ||
+                (typeof currentUniversity === 'object' && !currentUniversity.name)) {
+              appObj.student.studentProfile.university = university;
+            }
           }
           // Remove sensitive fields but keep the rest
           if (appObj.student.studentProfile.appliedJobs) {
@@ -1606,10 +1646,17 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     plan: 'premium'
   }).select('student plan');
   
-  // Fetch university and nationality for all students
+  // Fetch university and nationality for all students (populate university to get name)
+  const University = require('../models/universityModel');
   const studentsWithData = await User.find({
     _id: { $in: studentIds }
-  }).select('_id nationality studentProfile.university studentProfile.subscriptionTier').lean();
+  })
+    .select('_id nationality studentProfile.university studentProfile.subscriptionTier')
+    .populate({
+      path: 'studentProfile.university',
+      select: 'name status countryCode',
+    })
+    .lean();
   
   // Create maps for quick lookup
   const premiumStudentMap = new Map();
@@ -1703,8 +1750,8 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     { $sort: { _id: 1 } },
   ]);
 
-  // Get unique universities for filter dropdown
-  const uniqueUniversities = await JobApplication.aggregate([
+  // Get unique universities for filter dropdown (with names for display)
+  const uniqueUniversitiesAgg = await JobApplication.aggregate([
     { $match: { jobPost: jobPost._id } },
     {
       $lookup: {
@@ -1715,9 +1762,32 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
       },
     },
     { $unwind: '$studentData' },
-    { $group: { _id: '$studentData.studentProfile.university' } },
-    { $sort: { _id: 1 } },
+    {
+      $lookup: {
+        from: 'universities',
+        localField: 'studentData.studentProfile.university',
+        foreignField: '_id',
+        as: 'universityData',
+      },
+    },
+    { $unwind: { path: '$universityData', preserveNullAndEmptyArrays: true } },
+    {
+      $group: {
+        _id: '$studentData.studentProfile.university',
+        name: { $first: '$universityData.name' },
+      },
+    },
+    { $match: { _id: { $ne: null } } }, // Exclude null universities
+    { $sort: { name: 1 } }, // Sort by name
   ]);
+  
+  // Format for frontend: return objects with _id and name
+  const uniqueUniversities = uniqueUniversitiesAgg
+    .filter(uni => uni._id) // Only include universities with valid IDs
+    .map(uni => ({
+      _id: uni._id,
+      name: uni.name || `University (${uni._id.toString().substring(0, 8)}...)`, // Show partial ID if name not found
+    }));
 
   res.status(200).json({
     status: 'success',
@@ -1731,7 +1801,7 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     data: {
       applications,
       uniqueNationalities: uniqueNationalities.map((n) => n._id).filter(Boolean),
-      uniqueUniversities: uniqueUniversities.map((u) => u._id).filter(Boolean),
+      uniqueUniversities: uniqueUniversities, // Return full objects with _id and name
     },
   });
 });

@@ -5,6 +5,43 @@ const sendEmail = require('../../utils/email');
 const University = require('../../models/universityModel');
 
 /**
+ * Map country name to ISO country code (2 letters)
+ * This matches the frontend COUNTRY_TO_ISO_CODE mapping
+ */
+const getCountryCodeFromName = (countryName) => {
+  if (!countryName) return null;
+  
+  // If already a 2-letter code, return it uppercase
+  if (countryName.length === 2) {
+    return countryName.toUpperCase();
+  }
+  
+  // Map country names to ISO codes (matching frontend mapping)
+  const COUNTRY_TO_ISO_CODE = {
+    'Afghanistan': 'AF', 'Albania': 'AL', 'Algeria': 'DZ', 'Argentina': 'AR',
+    'Australia': 'AU', 'Austria': 'AT', 'Bahrain': 'BH', 'Bangladesh': 'BD',
+    'Belgium': 'BE', 'Brazil': 'BR', 'Bulgaria': 'BG', 'Canada': 'CA',
+    'Chile': 'CL', 'China': 'CN', 'Colombia': 'CO', 'Croatia': 'HR',
+    'Czech Republic': 'CZ', 'Denmark': 'DK', 'Egypt': 'EG', 'Ethiopia': 'ET',
+    'Finland': 'FI', 'France': 'FR', 'Germany': 'DE', 'Ghana': 'GH',
+    'Greece': 'GR', 'Hungary': 'HU', 'India': 'IN', 'Indonesia': 'ID',
+    'Ireland': 'IE', 'Italy': 'IT', 'Japan': 'JP', 'Jordan': 'JO',
+    'Kenya': 'KE', 'Kuwait': 'KW', 'Lebanon': 'LB', 'Malaysia': 'MY',
+    'Mexico': 'MX', 'Morocco': 'MA', 'Netherlands': 'NL', 'New Zealand': 'NZ',
+    'Nigeria': 'NG', 'Norway': 'NO', 'Oman': 'OM', 'Pakistan': 'PK',
+    'Palestine': 'PS', 'Peru': 'PE', 'Philippines': 'PH', 'Poland': 'PL',
+    'Portugal': 'PT', 'Qatar': 'QA', 'Romania': 'RO', 'Russia': 'RU',
+    'Saudi Arabia': 'SA', 'Singapore': 'SG', 'Slovakia': 'SK', 'South Africa': 'ZA',
+    'South Korea': 'KR', 'Spain': 'ES', 'Sweden': 'SE', 'Switzerland': 'CH',
+    'Tanzania': 'TZ', 'Thailand': 'TH', 'Tunisia': 'TN', 'Turkey': 'TR',
+    'Uganda': 'UG', 'Ukraine': 'UA', 'United Arab Emirates': 'AE', 'United Kingdom': 'GB',
+    'United States': 'US', 'Vietnam': 'VN',
+  };
+  
+  return COUNTRY_TO_ISO_CODE[countryName] || null;
+};
+
+/**
  * Prepare base user data for registration
  */
 const prepareBaseUserData = (req) => {
@@ -66,22 +103,43 @@ const prepareStudentData = async (baseData, req, next) => {
   if (req.body.studentProfile) {
     const sp = req.body.studentProfile;
     
-    // Find university by name and save its ID (one-to-one relation)
-    if (sp.university?.trim()) {
-      const universityName = sp.university.trim();
-      // Try to find existing university by name (case-insensitive)
-      const university = await University.findOne({
-        name: { $regex: new RegExp(`^${universityName}$`, 'i') },
-      });
+    // Handle university - can be either ID or name
+    if (sp.university) {
+      // Check if it's a valid MongoDB ObjectId (24 hex characters)
+      const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(sp.university);
       
-      if (university) {
-        // University exists, save its ID
-        baseData.studentProfile.university = university._id;
-      } else {
-        // University doesn't exist yet (will be created after registration)
-        // For now, we'll save it as null and update it after the custom university is created
-        // This will be handled in the registration flow after user creation
-        baseData.studentProfile.university = null;
+      if (isValidObjectId) {
+        // It's an ID - verify it exists
+        const university = await University.findById(sp.university);
+        if (university) {
+          baseData.studentProfile.university = university._id;
+        } else {
+          // Invalid ID, set to null
+          baseData.studentProfile.university = null;
+        }
+      } else if (typeof sp.university === 'string' && sp.university.trim()) {
+        // It's a name - find or store for later creation
+        const universityName = sp.university.trim();
+        // Try to find existing university by name (case-insensitive)
+        const university = await University.findOne({
+          name: { $regex: new RegExp(`^${universityName}$`, 'i') },
+        });
+        
+        if (university) {
+          // University exists, save its ID
+          baseData.studentProfile.university = university._id;
+        } else {
+          // University doesn't exist - store name for later creation
+          // Store in a temporary field to be handled after user creation
+          baseData._pendingUniversityName = universityName;
+          // Try to get country code from country field
+          if (baseData.country) {
+            baseData._pendingUniversityCountryCode = getCountryCodeFromName(baseData.country);
+          } else {
+            baseData._pendingUniversityCountryCode = null;
+          }
+          baseData.studentProfile.university = null;
+        }
       }
     }
     if (sp.major?.trim()) {
@@ -277,5 +335,6 @@ module.exports = {
   prepareUserData,
   createStartupForUser,
   sendVerificationEmail,
+  getCountryCodeFromName,
 };
 

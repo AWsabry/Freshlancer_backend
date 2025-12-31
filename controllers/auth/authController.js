@@ -81,6 +81,90 @@ exports.signup = catchAsync(async (req, res, next) => {
   // Create user
   const newUser = await User.create(userData);
 
+  // Handle pending university creation (for custom universities entered during registration)
+  if (userData._pendingUniversityName && newUser.role === 'student') {
+    const University = require('../../models/universityModel');
+    try {
+      // Get country code - should be provided by frontend or extracted from country
+      let countryCode = userData._pendingUniversityCountryCode;
+      
+      // If countryCode not provided, try to get it from user's country using helper function
+      if (!countryCode && newUser.country) {
+        const { getCountryCodeFromName } = require('./authHelpers');
+        countryCode = getCountryCodeFromName(newUser.country);
+      }
+
+      // Search for existing university by name (case-insensitive)
+      let university = await University.findOne({
+        name: { $regex: new RegExp(`^${userData._pendingUniversityName}$`, 'i') },
+      });
+
+      // If not found and we have countryCode, create it
+      if (!university && countryCode) {
+        try {
+          university = await University.create({
+            name: userData._pendingUniversityName,
+            countryCode: countryCode,
+            status: 'pending',
+            addedBy: newUser._id,
+          });
+          logger.info('✅ Created pending university during registration:', {
+            universityId: university._id,
+            name: university.name,
+            userId: newUser._id,
+          });
+        } catch (createError) {
+          // Log error but don't throw - registration should continue
+          logger.error('❌ Error creating university during registration:', {
+            error: createError.message,
+            stack: createError.stack,
+            universityName: userData._pendingUniversityName,
+            countryCode: countryCode,
+            userId: newUser._id,
+          });
+        }
+      }
+
+      // Update user's university field if we found/created one
+      if (university) {
+        try {
+          newUser.studentProfile.university = university._id;
+          await newUser.save({ validateBeforeSave: false });
+          logger.info('✅ Linked university to student profile:', {
+            userId: newUser._id,
+            universityId: university._id,
+            universityName: university.name,
+          });
+        } catch (saveError) {
+          // Log error but don't throw - registration should continue
+          logger.error('❌ Error saving university link to user profile:', {
+            error: saveError.message,
+            userId: newUser._id,
+            universityId: university._id,
+          });
+        }
+      } else {
+        // University not found/created - log for debugging but don't fail registration
+        logger.warn('⚠️ University not linked during registration (will need to be updated later):', {
+          userId: newUser._id,
+          universityName: userData._pendingUniversityName,
+          countryCode: countryCode || 'not provided',
+          reason: !countryCode ? 'countryCode not available' : 'university creation failed',
+        });
+      }
+    } catch (error) {
+      // Log error but don't fail registration - university can be updated later
+      logger.error('❌ Unexpected error in university creation/linking during registration:', {
+        error: error.message,
+        stack: error.stack,
+        userId: newUser._id,
+        universityName: userData._pendingUniversityName,
+      });
+    }
+    delete userData._pendingUniversityName; // Clean up
+    delete userData._pendingUniversityCountryCode; // Clean up
+  }
+
   // Create startup if needed
   if (newUser.clientProfile?.isStartup && userData._startupData) {
     await createStartupForUser(newUser, userData._startupData);
@@ -96,7 +180,7 @@ exports.signup = catchAsync(async (req, res, next) => {
   });
 
   // Send verification email
-  const emailResult = await sendVerificationEmail(newUser, req, res, next);
+  const emailResult = await sendVerificationEmail(newUser);
   createSendToken(newUser, 201, req, res, emailResult.message);
 });
 
@@ -647,8 +731,64 @@ exports.updateMe = catchAsync(async (req, res, next) => {
   if (req.user.role === 'student' && req.body.studentProfile) {
     const sp = req.body.studentProfile;
 
-    // University
-    if (sp.university !== undefined) updateData['studentProfile.university'] = sp.university;
+    // University - can be ID or name
+    if (sp.university !== undefined) {
+      const University = require('../../models/universityModel');
+      // Check if it's a valid MongoDB ObjectId (24 hex characters)
+      const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(sp.university);
+      
+      if (isValidObjectId) {
+        // It's an ID - verify it exists
+        const university = await University.findById(sp.university);
+        if (university) {
+          updateData['studentProfile.university'] = university._id;
+        } else {
+          // Invalid ID - don't update
+          return next(new AppError('Invalid university ID', 400));
+        }
+      } else if (typeof sp.university === 'string' && sp.university.trim()) {
+        // It's a name - find or create university
+        const universityName = sp.university.trim();
+        // Try to find existing university by name (case-insensitive)
+        let university = await University.findOne({
+          name: { $regex: new RegExp(`^${universityName}$`, 'i') },
+        });
+        
+        if (!university) {
+          // University doesn't exist - create it as pending
+          // Get country code from user's country
+          let countryCode = null;
+          if (req.user.country) {
+            // Try to extract 2-letter code or use country name as-is if it's already a code
+            if (req.user.country.length === 2) {
+              countryCode = req.user.country.toUpperCase();
+            } else {
+              // For now, we'll require countryCode to be provided in the request
+              // Or we could create a mapping, but that's complex
+              // The frontend should send countryCode when updating with a custom university
+              countryCode = null;
+            }
+          }
+          
+          // If we have countryCode, create the university
+          if (countryCode) {
+            university = await University.create({
+              name: universityName,
+              countryCode: countryCode,
+              status: 'pending',
+              addedBy: req.user._id,
+            });
+          } else {
+            return next(new AppError('University not found. Please provide a valid university ID or ensure your country is set correctly.', 400));
+          }
+        }
+        
+        updateData['studentProfile.university'] = university._id;
+      } else if (sp.university === null || sp.university === '') {
+        // Allow clearing university
+        updateData['studentProfile.university'] = null;
+      }
+    }
     if (sp.universityLink !== undefined) updateData['studentProfile.universityLink'] = sp.universityLink;
 
     // Skills
@@ -822,6 +962,14 @@ exports.updateMe = catchAsync(async (req, res, next) => {
 
     if (!updatedUser) {
       return next(new AppError('User not found', 404));
+    }
+
+    // Populate university if user is a student
+    if (updatedUser.role === 'student' && updatedUser.studentProfile?.university) {
+      await updatedUser.populate({
+        path: 'studentProfile.university',
+        select: 'name status countryCode',
+      });
     }
 
     // Log profile update

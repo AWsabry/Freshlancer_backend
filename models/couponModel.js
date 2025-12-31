@@ -171,7 +171,7 @@ const couponSchema = new mongoose.Schema({
 // Indexes for better query performance
 couponSchema.index({ targetAudience: 1, isActive: 1, startDate: 1, endDate: 1 });
 couponSchema.index({ featured: 1 });
-couponSchema.index({ couponCode: 1 });
+// Note: couponCode already has unique: true, which automatically creates an index, so we don't need to add it again
 
 // Update the updatedAt field
 couponSchema.pre('save', function(next) {

@@ -42,7 +42,7 @@ categorySchema.pre('save', function (next) {
 });
 
 // Index for faster queries
-categorySchema.index({ name: 1 });
+// Note: name already has unique: true, which automatically creates an index, so we don't need to add it again
 categorySchema.index({ isActive: 1 });
 
 const Category = mongoose.model('Category', categorySchema);

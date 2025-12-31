@@ -107,7 +107,30 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
             user.studentProfile.subscriptionExpiryDate = expiryDate;
             await user.save({ validateBeforeSave: false });
 
-            // Note: Notification will be created in completePaymentSuccess to avoid duplicates
+            // Send subscription confirmation email asynchronously
+            // Note: Email may also be sent in completePaymentSuccess, but sending here ensures it's sent even if that handler isn't called
+            sendEmail({
+              type: 'subscription-confirmation',
+              email: user.email,
+              name: user.name,
+              amount: transaction.amount,
+              currency: transaction.currency,
+              paymentMethod: processedData.paymentMethod || 'Paymob',
+              transactionDate: transaction.completedAt || Date.now(),
+              startDate: subscription.startDate,
+              endDate: subscription.endDate,
+              dashboardUrl: `${process.env.FRONTEND_URL}/student/jobs`,
+            })
+              .then(() => {
+                logger.info('✅ Subscription confirmation email sent to:', user.email);
+              })
+              .catch(err => {
+                logger.error('❌ Failed to send subscription confirmation email:', {
+                  error: err.message,
+                  userId: user._id,
+                  email: user.email,
+                });
+              });
           }
 
           console.log('Subscription activated for user:', user._id);
@@ -145,8 +168,8 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
         const granting = await Granting.findById(grantingId);
         
         if (granting) {
-          // Only update if not already completed (prevent duplicate updates)
-          if (granting.status !== 'completed') {
+          // If transaction status is completed, ensure granting status is also completed
+          if (transaction.status === 'completed' && granting.status !== 'completed') {
             granting.status = 'completed';
             granting.completedAt = Date.now();
             
@@ -528,6 +551,30 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
 
             console.log('✅ Notification created');
             
+            // Send subscription confirmation email asynchronously
+            sendEmail({
+              type: 'subscription-confirmation',
+              email: user.email,
+              name: user.name,
+              amount: transaction.amount,
+              currency: transaction.currency,
+              paymentMethod: transaction.paymentMethod || 'Paymob',
+              transactionDate: transaction.completedAt || Date.now(),
+              startDate: subscription.startDate,
+              endDate: subscription.endDate,
+              dashboardUrl: `${process.env.FRONTEND_URL}/student/jobs`,
+            })
+              .then(() => {
+                logger.info('✅ Subscription confirmation email sent to:', user.email);
+              })
+              .catch(err => {
+                logger.error('❌ Failed to send subscription confirmation email:', {
+                  error: err.message,
+                  userId: user._id,
+                  email: user.email,
+                });
+              });
+            
             // Log subscription purchase success
             logger.success(`✅ Subscription purchased: ${user.email} upgraded to premium`, {
               action: 'subscription_purchase',
@@ -614,9 +661,10 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
         if (granting) {
           console.log('Granting found:', granting._id);
           console.log('Current status:', granting.status);
+          console.log('Transaction status:', transaction.status);
           
-          // Only update if not already completed (prevent duplicate updates)
-          if (granting.status !== 'completed') {
+          // If transaction status is completed, ensure granting status is also completed
+          if (transaction.status === 'completed' && granting.status !== 'completed') {
             granting.status = 'completed';
             granting.completedAt = Date.now();
             
@@ -646,17 +694,6 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
             
             console.log('✅ Notification created');
             
-            // Log donation success
-            logger.success(`✅ Donation received: ${user.email} - ${granting.currency} ${granting.amount}`, {
-              action: 'donation_success',
-              userId: user._id,
-              email: user.email,
-              grantingId: granting._id,
-              transactionId: transaction._id,
-              amount: granting.amount,
-              currency: granting.currency,
-            });
-            
             // Send donation confirmation email asynchronously
             sendEmail({
               type: 'donation-confirmation',
@@ -678,6 +715,17 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
                   email: user.email,
                 });
               });
+            
+            // Log donation success
+            logger.success(`✅ Donation received: ${user.email} - ${granting.currency} ${granting.amount}`, {
+              action: 'donation_success',
+              userId: user._id,
+              email: user.email,
+              grantingId: granting._id,
+              transactionId: transaction._id,
+              amount: granting.amount,
+              currency: granting.currency,
+            });
           } else {
             console.log('⚠️ Granting already completed - skipping update to prevent duplicates');
           }

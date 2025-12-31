@@ -288,6 +288,70 @@ const EMAIL_TEMPLATES = {
   },
 
   /**
+   * Subscription confirmation email template
+   */
+  'subscription-confirmation': (options) => {
+    const subscriptionInfo = [
+      { label: 'Plan', value: 'Premium' },
+      { label: 'Amount', value: `${options.currency} ${options.amount}` },
+      { label: 'Payment Method', value: options.paymentMethod || 'Paymob' },
+      { label: 'Transaction Date', value: new Date(options.transactionDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) },
+      { label: 'Start Date', value: new Date(options.startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) },
+      { label: 'End Date', value: new Date(options.endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) },
+    ];
+
+    const benefits = [
+      'Apply to up to 100 jobs per month (vs 10 on free plan)',
+      'Priority support from our team',
+      'Enhanced visibility in search results',
+      'Access to premium job opportunities',
+      'Monthly application limit reset',
+    ];
+
+    // Hardcoded OG image URL
+    const ogImageUrl = 'https://freshlancer.online/og-image.png';
+
+    return {
+      subject: 'Welcome to Premium! Your Subscription is Active 🎉',
+      content: createEmailWrapper(`
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+        </div>
+        ${createHeader('Welcome to Premium! 🎉')}
+        ${createGreeting(options.name)}
+        ${createParagraph('Congratulations! Your premium subscription has been successfully activated. You now have access to all premium features and can apply to up to 100 jobs per month.')}
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 30px 0;">
+          <tr>
+            <td style="padding: 20px; background: ${BRAND_COLORS.primary}10; border-radius: 8px;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 18px; font-weight: 600; text-align: center;">
+                💳 Subscription Details
+              </p>
+              ${createDataTable(subscriptionInfo)}
+            </td>
+          </tr>
+        </table>
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 40px 0;">
+          <tr>
+            <td style="padding: 20px 0; border-top: 1px solid ${BRAND_COLORS.primary}20; border-bottom: 1px solid ${BRAND_COLORS.primary}20;">
+              <p style="margin: 0 0 15px 0; color: ${BRAND_COLORS.primary}; font-size: 16px; font-weight: 600; text-align: center;">
+                ⭐ Premium Benefits
+              </p>
+              ${createInfoBox(benefits)}
+            </td>
+          </tr>
+        </table>
+        <p style="color: ${BRAND_COLORS.text}; font-size: 17px; line-height: 1.7; margin: 30px 0; text-align: center; font-weight: 500;">
+          Ready to start applying? Browse available jobs and make the most of your premium subscription!
+        </p>
+        ${createEmailButton(options.dashboardUrl || 'https://freshlancer.online/student/jobs', 'Browse Jobs')}
+        <p style="color: ${BRAND_COLORS.textLight}; font-size: 15px; line-height: 1.7; margin: 30px 0 0 0; text-align: center;">
+          Your subscription will automatically renew at the end of the billing period. If you have any questions, please contact our support team.
+        </p>
+      `, BRAND_COLORS.primary)
+    };
+  },
+
+  /**
    * Donation confirmation email template
    */
   'donation-confirmation': (options) => {
