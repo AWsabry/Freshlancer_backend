@@ -176,7 +176,7 @@ const transactionSchema = new mongoose.Schema({
 transactionSchema.index({ user: 1, createdAt: -1 });
 transactionSchema.index({ status: 1 });
 transactionSchema.index({ type: 1 });
-transactionSchema.index({ gatewayTransactionId: 1 });
+// Note: gatewayTransactionId already has unique: true, which automatically creates an index, so we don't need to add it again
 transactionSchema.index({ payer: 1, payee: 1 });
 transactionSchema.index({ createdAt: -1 });
 

@@ -457,6 +457,52 @@ exports.deleteUser = catchAsync(async (req, res, next) => {
 });
 
 // Verify/Unverify user (for students or clients)
+exports.updateUserRole = catchAsync(async (req, res, next) => {
+  const { role } = req.body;
+  const user = await User.findById(req.params.id);
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  // Validate role
+  const validRoles = ['student', 'client', 'admin', 'moderator'];
+  if (!role || !validRoles.includes(role)) {
+    return next(new AppError(`Invalid role. Must be one of: ${validRoles.join(', ')}`, 400));
+  }
+
+  // Prevent changing role of the current admin user (self)
+  if (user._id.toString() === req.user._id.toString() && user.role === 'admin') {
+    return next(new AppError('Cannot change your own admin role', 403));
+  }
+
+  // Prevent changing role to admin (only allow changing to moderator, student, or client)
+  if (role === 'admin') {
+    return next(new AppError('Cannot assign admin role through this endpoint. Admin roles must be assigned manually.', 403));
+  }
+
+  // Restrict role changes: students and clients can only be changed to moderator
+  if (user.role === 'student' && role !== 'moderator') {
+    return next(new AppError('Students can only be changed to moderator role', 400));
+  }
+
+  if (user.role === 'client' && role !== 'moderator') {
+    return next(new AppError('Clients can only be changed to moderator role', 400));
+  }
+
+  // Update role
+  user.role = role;
+  await user.save({ validateBeforeSave: false });
+
+  res.status(200).json({
+    status: 'success',
+    message: `User role updated to ${role} successfully`,
+    data: {
+      user,
+    },
+  });
+});
+
 exports.toggleUserVerification = catchAsync(async (req, res, next) => {
   const user = await User.findById(req.params.id);
 

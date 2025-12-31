@@ -27,6 +27,7 @@ const categoryRouter = require('./routers/categoryRouter');
 const universityRouter = require('./routers/universityRouter');
 const grantingRouter = require('./routers/grantingRouter');
 const logRouter = require('./routers/logRouter');
+const moderatorRouter = require('./routers/moderatorRouter');
 const AppError = require('./utils/AppError');
 const globalErrorHandler = require('./controllers/errorController');
 
@@ -197,6 +198,7 @@ app.use('/api/v1/categories', categoryRouter);
 app.use('/api/v1/universities', universityRouter);
 app.use('/api/v1/grantings', grantingRouter);
 app.use('/api/v1/logs', logRouter);
+app.use('/api/v1/moderator', moderatorRouter);
 
 //global middleware to handle unhandled routes
 app.all('*', (req, res, next) => {
