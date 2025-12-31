@@ -4,6 +4,8 @@ const Notification = require('../models/notificationModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const factory = require('./handlerFactory');
+const sendEmail = require('../utils/email');
+const logger = require('../utils/logger');
 
 // Student actions
 
@@ -180,7 +182,7 @@ exports.getVerification = factory.getOne(StudentVerification);
 
 // Approve verification
 exports.approveVerification = catchAsync(async (req, res, next) => {
-  const verification = await StudentVerification.findById(req.params.id);
+  const verification = await StudentVerification.findById(req.params.id).populate('student', 'name email');
 
   if (!verification) {
     return next(new AppError('No verification found with that ID', 404));
@@ -203,7 +205,8 @@ exports.approveVerification = catchAsync(async (req, res, next) => {
   await verification.save();
 
   // Update user's studentProfile verification status - ensure both fields are set
-  const student = await User.findById(verification.student._id || verification.student);
+  const studentId = verification.student._id || verification.student;
+  const student = await User.findById(studentId);
   if (!student) {
     return next(new AppError('Student not found', 404));
   }
@@ -231,7 +234,7 @@ exports.approveVerification = catchAsync(async (req, res, next) => {
 
   // Create notification for student
   await Notification.create({
-    user: verification.student._id,
+    user: studentId,
     type: 'verification_approved',
     title: 'Verification Approved',
     message: 'Your student verification has been approved. You can now apply for jobs!',
@@ -245,6 +248,25 @@ exports.approveVerification = catchAsync(async (req, res, next) => {
     },
   });
 
+  // Send email to student
+  sendEmail({
+    type: 'verification-approved',
+    email: student.email,
+    name: student.name,
+    adminNotes: req.body.adminNotes || undefined,
+    dashboardUrl: `${process.env.FRONTEND_URL}/student/jobs`,
+  })
+    .then(() => {
+      logger.info('✅ Verification approval email sent to:', student.email);
+    })
+    .catch(err => {
+      logger.error('❌ Failed to send verification approval email:', {
+        error: err.message,
+        studentId: student._id,
+        email: student.email,
+      });
+    });
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -255,7 +277,7 @@ exports.approveVerification = catchAsync(async (req, res, next) => {
 
 // Reject verification
 exports.rejectVerification = catchAsync(async (req, res, next) => {
-  const verification = await StudentVerification.findById(req.params.id);
+  const verification = await StudentVerification.findById(req.params.id).populate('student', 'name email');
 
   if (!verification) {
     return next(new AppError('No verification found with that ID', 404));
@@ -285,7 +307,8 @@ exports.rejectVerification = catchAsync(async (req, res, next) => {
   await verification.save();
 
   // Update user's studentProfile verification status - ensure both fields are set
-  const student = await User.findById(verification.student._id || verification.student);
+  const studentId = verification.student._id || verification.student;
+  const student = await User.findById(studentId);
   if (!student) {
     return next(new AppError('Student not found', 404));
   }
@@ -312,7 +335,7 @@ exports.rejectVerification = catchAsync(async (req, res, next) => {
 
   // Create notification for student
   await Notification.create({
-    user: verification.student._id,
+    user: studentId,
     type: 'verification_rejected',
     title: 'Verification Rejected',
     message: `Your student verification has been rejected. Reason: ${req.body.rejectionReason}`,
@@ -325,6 +348,26 @@ exports.rejectVerification = catchAsync(async (req, res, next) => {
       email: true,
     },
   });
+
+  // Send email to student
+  sendEmail({
+    type: 'verification-rejected',
+    email: student.email,
+    name: student.name,
+    rejectionReason: req.body.rejectionReason,
+    adminNotes: req.body.adminNotes || undefined,
+    verificationUrl: `${process.env.FRONTEND_URL}/student/verification`,
+  })
+    .then(() => {
+      logger.info('✅ Verification rejection email sent to:', student.email);
+    })
+    .catch(err => {
+      logger.error('❌ Failed to send verification rejection email:', {
+        error: err.message,
+        studentId: student._id,
+        email: student.email,
+      });
+    });
 
   res.status(200).json({
     status: 'success',

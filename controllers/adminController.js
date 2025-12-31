@@ -576,8 +576,11 @@ exports.getStudentsWithVerification = catchAsync(async (req, res, next) => {
 // Approve verification document
 exports.approveVerificationDocument = catchAsync(async (req, res, next) => {
   const StudentVerification = require('../models/studentVerificationModel');
+  const User = require('../models/userModel');
+  const sendEmail = require('../utils/email');
+  const logger = require('../utils/logger');
 
-  const document = await StudentVerification.findById(req.params.id);
+  const document = await StudentVerification.findById(req.params.id).populate('student', 'name email');
 
   if (!document) {
     return next(new AppError('Verification document not found', 404));
@@ -594,6 +597,45 @@ exports.approveVerificationDocument = catchAsync(async (req, res, next) => {
 
   await document.save();
 
+  // Update student profile verification status if needed
+  const student = await User.findById(document.student._id || document.student);
+  if (student && student.studentProfile) {
+    // Check if all documents are approved
+    const allVerifications = await StudentVerification.find({ 
+      student: student._id,
+      status: { $ne: 'rejected' }
+    });
+    const allApproved = allVerifications.every(v => v.status === 'approved');
+    
+    if (allApproved && allVerifications.length > 0) {
+      student.studentProfile.verificationStatus = 'verified';
+      student.studentProfile.isVerified = true;
+      student.studentProfile.verificationApprovedAt = Date.now();
+      await student.save({ validateBeforeSave: false });
+    }
+  }
+
+  // Send email to student
+  if (student && student.email) {
+    sendEmail({
+      type: 'verification-approved',
+      email: student.email,
+      name: student.name,
+      adminNotes: req.body.adminNotes || undefined,
+      dashboardUrl: `${process.env.FRONTEND_URL}/student/jobs`,
+    })
+      .then(() => {
+        logger.info('✅ Verification approval email sent to:', student.email);
+      })
+      .catch(err => {
+        logger.error('❌ Failed to send verification approval email:', {
+          error: err.message,
+          studentId: student._id,
+          email: student.email,
+        });
+      });
+  }
+
   res.status(200).json({
     status: 'success',
     data: {
@@ -605,6 +647,9 @@ exports.approveVerificationDocument = catchAsync(async (req, res, next) => {
 // Reject verification document
 exports.rejectVerificationDocument = catchAsync(async (req, res, next) => {
   const StudentVerification = require('../models/studentVerificationModel');
+  const User = require('../models/userModel');
+  const sendEmail = require('../utils/email');
+  const logger = require('../utils/logger');
 
   const { rejectionReason, adminNotes } = req.body;
 
@@ -612,7 +657,7 @@ exports.rejectVerificationDocument = catchAsync(async (req, res, next) => {
     return next(new AppError('Rejection reason is required', 400));
   }
 
-  const document = await StudentVerification.findById(req.params.id);
+  const document = await StudentVerification.findById(req.params.id).populate('student', 'name email');
 
   if (!document) {
     return next(new AppError('Verification document not found', 404));
@@ -629,6 +674,36 @@ exports.rejectVerificationDocument = catchAsync(async (req, res, next) => {
   document.adminNotes = adminNotes || '';
 
   await document.save();
+
+  // Update student profile verification status
+  const student = await User.findById(document.student._id || document.student);
+  if (student && student.studentProfile) {
+    student.studentProfile.verificationStatus = 'rejected';
+    student.studentProfile.isVerified = false;
+    await student.save({ validateBeforeSave: false });
+  }
+
+  // Send email to student
+  if (student && student.email) {
+    sendEmail({
+      type: 'verification-rejected',
+      email: student.email,
+      name: student.name,
+      rejectionReason: rejectionReason,
+      adminNotes: adminNotes || undefined,
+      verificationUrl: `${process.env.FRONTEND_URL}/student/verification`,
+    })
+      .then(() => {
+        logger.info('✅ Verification rejection email sent to:', student.email);
+      })
+      .catch(err => {
+        logger.error('❌ Failed to send verification rejection email:', {
+          error: err.message,
+          studentId: student._id,
+          email: student.email,
+        });
+      });
+  }
 
   res.status(200).json({
     status: 'success',
