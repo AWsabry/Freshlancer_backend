@@ -1,11 +1,16 @@
 const JobApplication = require('../models/jobApplicationModel');
 const JobPost = require('../models/jobPostModel');
+const Category = require('../models/categoryModel');
 const User = require('../models/userModel');
 const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
 const sendEmail = require('../utils/email');
 const logger = require('../utils/logger');
 const { syncApplicationCount, incrementApplicationCount } = require('../utils/applicationCounter');
+const {
+  validateCategorySpecValues,
+  enforceCompatibilityWithJobRequirements,
+} = require('../utils/categorySpecs');
 
 // Helper function to normalize attachment URLs to full URLs
 const normalizeAttachmentUrls = (attachments, baseUrl) => {
@@ -123,6 +128,39 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   // Validate jobPost has required fields
   if (!jobPost.client) {
     return next(new AppError('Job post client information is missing', 500));
+  }
+
+  // Validate category specs for application (if category has specs configured).
+  // NOTE: We do NOT require the category to be active here, since jobs may exist
+  // under deactivated categories and should still be apply-able.
+  const categoryDoc = jobPost.category
+    ? await Category.findOne({ name: jobPost.category })
+    : null;
+
+  if (categoryDoc) {
+    try {
+      // Validate student answers against category definitions
+      const cleanedAnswers = validateCategorySpecValues(
+        categoryDoc,
+        req.body.categorySpecAnswers,
+        'application'
+      );
+
+      // Enforce compatibility with job requirements for specs used in both flows
+      const finalAnswers = enforceCompatibilityWithJobRequirements(
+        categoryDoc,
+        jobPost.categorySpecRequirements,
+        cleanedAnswers
+      );
+
+      req.body.categorySpecAnswers = finalAnswers;
+    } catch (err) {
+      return next(new AppError(err.message, 400));
+    }
+  } else if (req.body.categorySpecAnswers !== undefined) {
+    // If the client sends spec answers but we can't resolve the category,
+    // reject to avoid storing unvalidated arbitrary data.
+    return next(new AppError('Job category specs are not available for validation', 400));
   }
 
   // Check if student has already applied (excluding withdrawn applications to allow re-application)

@@ -79,6 +79,13 @@ const jobPostSchema = new mongoose.Schema({
     required: [true, 'Please select a job category'],
     trim: true,
   },
+  // Per-category custom requirements selected by the client at job-post time.
+  // Keys correspond to Category.specs[].key
+  categorySpecRequirements: {
+    type: Map,
+    of: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
   experienceLevel: {
     type: String,
     required: [true, 'Please select the required experience level'],

@@ -126,6 +126,13 @@ const jobApplicationSchema = new mongoose.Schema({
       'I am an expert in this field',
     ],
   },
+  // Per-category custom answers submitted by the student.
+  // Keys correspond to Category.specs[].key
+  categorySpecAnswers: {
+    type: Map,
+    of: mongoose.Schema.Types.Mixed,
+    default: {},
+  },
   portfolio: [
     {
       title: {
@@ -327,7 +334,8 @@ jobApplicationSchema.post('findOneAndDelete', async (doc) => {
 jobApplicationSchema.pre(/^find/, function (next) {
   this.populate({
     path: 'jobPost',
-    select: 'title description budget deadline status client category location urgent skillsRequired duration createdAt',
+    select:
+      'title description budget deadline status client category location urgent skillsRequired duration createdAt categorySpecRequirements',
     populate: {
       path: 'client',
       select: 'name email photo clientProfile',

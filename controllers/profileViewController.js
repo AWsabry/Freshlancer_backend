@@ -115,8 +115,14 @@ exports.getStudentProfile = catchAsync(async (req, res, next) => {
 
   const { studentId } = req.params;
 
-  // Get the student with all fields (including nested studentProfile)
-  const student = await User.findById(studentId).lean();
+  // Get the student with nested university populated
+  // (Frontend helper returns N/A if university is only an ObjectId string)
+  const student = await User.findById(studentId)
+    .populate({
+      path: 'studentProfile.university',
+      select: 'name status countryCode',
+    })
+    .lean();
 
   if (!student || student.role !== 'student') {
     return next(new AppError('Student not found', 404));

@@ -741,6 +741,173 @@ const EMAIL_TEMPLATES = {
       )
     };
   },
+
+  /**
+   * Contract & milestone emails
+   */
+  'contract-created': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Job', value: options.jobTitle || 'N/A' },
+      {
+        label: 'Total',
+        value: options.totalAmount
+          ? `${options.currency || ''} ${options.totalAmount}`
+          : 'N/A',
+      },
+    ];
+
+    return {
+      subject: options.subject || 'New contract created 📝',
+      content: createEmailWrapper(
+        createHeader('New Contract Created 📝') +
+          createGreeting(options.name) +
+          createParagraph(
+            'A new contract has been created for your project. Please review the details and sign when ready.'
+          ) +
+          createDataTable(data) +
+          createEmailButton(options.contractUrl || options.dashboardUrl || '#', 'View Contract'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'contract-updated': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Updated By', value: options.updatedBy || 'N/A' },
+      { label: 'Version', value: options.version !== undefined ? String(options.version) : 'N/A' },
+    ];
+    return {
+      subject: options.subject || 'Contract updated ✏️',
+      content: createEmailWrapper(
+        createHeader('Contract Updated ✏️') +
+          createGreeting(options.name) +
+          createParagraph(
+            'The contract terms were updated. Previous signatures (if any) are invalidated and both parties should review and sign again.'
+          ) +
+          createDataTable(data) +
+          createEmailButton(options.contractUrl || options.dashboardUrl || '#', 'Review Contract'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'contract-signed': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Job', value: options.jobTitle || 'N/A' },
+      {
+        label: 'Signed At',
+        value: options.signedAt
+          ? new Date(options.signedAt).toLocaleString()
+          : new Date().toLocaleString(),
+      },
+    ];
+    return {
+      subject: options.subject || 'Contract signed ✅',
+      content: createEmailWrapper(
+        createHeader('Contract Signed ✅') +
+          createGreeting(options.name) +
+          createParagraph(
+            'Both parties have signed the contract. You can now proceed with funding and completing milestones.'
+          ) +
+          createDataTable(data) +
+          createEmailButton(options.contractUrl || options.dashboardUrl || '#', 'Open Contract'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'milestone-funded': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Milestone', value: options.milestoneTitle || 'N/A' },
+      { label: 'Amount', value: options.amount ? `${options.currency || ''} ${options.amount}` : 'N/A' },
+    ];
+    return {
+      subject: options.subject || 'Milestone funded 💳',
+      content: createEmailWrapper(
+        createHeader('Milestone Funded 💳') +
+          createGreeting(options.name) +
+          createParagraph(
+            'The milestone has been funded and is now ready to be worked on. Funds will be released only after completion and approval.'
+          ) +
+          createDataTable(data) +
+          createEmailButton(options.contractUrl || options.dashboardUrl || '#', 'View Milestones'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'milestone-submitted': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Milestone', value: options.milestoneTitle || 'N/A' },
+      {
+        label: 'Submitted At',
+        value: options.submittedAt
+          ? new Date(options.submittedAt).toLocaleString()
+          : new Date().toLocaleString(),
+      },
+    ];
+    return {
+      subject: options.subject || 'Milestone submitted 📤',
+      content: createEmailWrapper(
+        createHeader('Milestone Submitted 📤') +
+          createGreeting(options.name) +
+          createParagraph(
+            'The student marked this milestone as completed. Please review and approve to release payment.'
+          ) +
+          createDataTable(data) +
+          createEmailButton(options.contractUrl || options.dashboardUrl || '#', 'Review Milestone'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'milestone-approved': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Milestone', value: options.milestoneTitle || 'N/A' },
+      {
+        label: 'Approved At',
+        value: options.approvedAt
+          ? new Date(options.approvedAt).toLocaleString()
+          : new Date().toLocaleString(),
+      },
+    ];
+    return {
+      subject: options.subject || 'Milestone approved ✅',
+      content: createEmailWrapper(
+        createHeader('Milestone Approved ✅') +
+          createGreeting(options.name) +
+          createParagraph('The milestone has been approved. Payment is being released to the student wallet.') +
+          createDataTable(data) +
+          createEmailButton(options.contractUrl || options.dashboardUrl || '#', 'View Contract'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'escrow-released': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Milestone', value: options.milestoneTitle || 'N/A' },
+      { label: 'Amount', value: options.amount ? `${options.currency || ''} ${options.amount}` : 'N/A' },
+    ];
+    return {
+      subject: options.subject || 'Payment released 🎉',
+      content: createEmailWrapper(
+        createHeader('Payment Released 🎉') +
+          createGreeting(options.name) +
+          createParagraph('Escrow funds for this milestone have been released. Thank you for using Freshlancer contracts.') +
+          createDataTable(data) +
+          createEmailButton(options.contractUrl || options.dashboardUrl || '#', 'View Details'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
 };
 
 /**

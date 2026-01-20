@@ -500,6 +500,23 @@ const userSchema = new mongoose.Schema({
     ],
   },
 
+  // Money wallet (separate from points). Used for contracts escrow + payouts.
+  // `balances` is what the user can withdraw/use.
+  // `escrow` is held funds for active contracts (not withdrawable until released).
+  wallet: {
+    balances: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    escrow: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    updatedAt: Date,
+  },
+
   // Platform metrics and activity
   rating: {
     average: {
