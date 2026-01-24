@@ -18,6 +18,11 @@ router.use(authController.restrictTo('admin'));
 // Dashboard stats
 router.get('/stats', adminController.getDashboardStats);
 
+// Platform fee settings & income
+router.get('/platform-settings', adminController.getPlatformSettings);
+router.patch('/platform-settings', adminController.updatePlatformSettings);
+router.get('/platform-income', adminController.getPlatformIncome);
+
 // Analytics
 router.get('/analytics', analyticsController.getAnalytics);
 

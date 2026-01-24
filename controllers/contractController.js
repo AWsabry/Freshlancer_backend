@@ -4,6 +4,7 @@ const User = require('../models/userModel');
 const Transaction = require('../models/transactionModel');
 const Notification = require('../models/notificationModel');
 const Appeal = require('../models/appealModel');
+const PlatformSettings = require('../models/platformSettingsModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const paymobService = require('../utils/payment/paymob');
@@ -772,9 +773,10 @@ exports.fundMilestone = catchAsync(async (req, res, next) => {
   const currency = contract.currency;
   const paymentGateway = currency === 'EGP' ? 'paymob' : 'paypal';
 
-  // Fees (client pays extra; escrow is funded by principal only)
-  const PLATFORM_FEE_RATE = 0.1; // 10%
-  const TRANSACTION_FEE_RATE = 0.03; // 3%
+  // Fees (client pays extra; escrow is funded by principal only). Rates from platform settings.
+  const settings = await PlatformSettings.findById(PlatformSettings.PLATFORM_SETTINGS_ID).lean();
+  const PLATFORM_FEE_RATE = settings?.platformFeeRate ?? 0.1;
+  const TRANSACTION_FEE_RATE = settings?.transactionFeeRate ?? 0.03;
   const platformFee = roundMoney(principalAmount * PLATFORM_FEE_RATE);
   const transactionFee = roundMoney(principalAmount * TRANSACTION_FEE_RATE);
   const totalCharge = roundMoney(principalAmount + platformFee + transactionFee);
