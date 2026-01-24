@@ -7,6 +7,8 @@ const Transaction = require('../models/transactionModel');
 const Notification = require('../models/notificationModel');
 const ProfileView = require('../models/profileViewModel');
 const StudentVerification = require('../models/studentVerificationModel');
+const { Contract } = require('../models/contractModel');
+const Withdrawal = require('../models/withdrawalModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 
@@ -886,5 +888,123 @@ exports.deletePackage = catchAsync(async (req, res, next) => {
     status: 'success',
     message: 'Package deleted successfully',
     data: null,
+  });
+});
+
+// Get all contracts (admin view)
+exports.getAllContracts = catchAsync(async (req, res, next) => {
+  const { status, page = 1, limit = 50, clientId, studentId, startDate, endDate } = req.query;
+
+  const query = {};
+  if (status) {
+    query.status = status;
+  }
+  if (clientId) {
+    query.client = clientId;
+  }
+  if (studentId) {
+    query.student = studentId;
+  }
+
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) {
+      query.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      query.createdAt.$lte = endDateTime;
+    }
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [contracts, totalCount] = await Promise.all([
+    Contract.find(query)
+      .populate({
+        path: 'client',
+        select: 'name email phone',
+      })
+      .populate({
+        path: 'student',
+        select: 'name email phone',
+      })
+      .populate({
+        path: 'jobPost',
+        select: 'title category',
+      })
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(parseInt(limit)),
+    Contract.countDocuments(query),
+  ]);
+
+  res.status(200).json({
+    status: 'success',
+    results: contracts.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: parseInt(page),
+    data: {
+      contracts,
+    },
+  });
+});
+
+// Get all withdrawals (admin view)
+exports.getAllWithdrawals = catchAsync(async (req, res, next) => {
+  const { status, page = 1, limit = 50, userId, paymentMethod, startDate, endDate } = req.query;
+
+  const query = {};
+  if (status) {
+    query.status = status;
+  }
+  if (userId) {
+    query.user = userId;
+  }
+  if (paymentMethod) {
+    query.paymentMethod = paymentMethod;
+  }
+
+  if (startDate || endDate) {
+    query.requestedAt = {};
+    if (startDate) {
+      query.requestedAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      query.requestedAt.$lte = endDateTime;
+    }
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [withdrawals, totalCount] = await Promise.all([
+    Withdrawal.find(query)
+      .populate({
+        path: 'user',
+        select: 'name email phone role',
+      })
+      .populate({
+        path: 'transaction',
+        select: 'amount currency status invoiceNumber',
+      })
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(parseInt(limit)),
+    Withdrawal.countDocuments(query),
+  ]);
+
+  res.status(200).json({
+    status: 'success',
+    results: withdrawals.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: parseInt(page),
+    data: {
+      withdrawals,
+    },
   });
 });

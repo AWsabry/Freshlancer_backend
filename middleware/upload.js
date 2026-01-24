@@ -16,6 +16,8 @@ ensureUploadDir('uploads/verification-documents');
 ensureUploadDir('uploads/additional-documents');
 ensureUploadDir('uploads/startup-logos');
 ensureUploadDir('uploads/photos');
+ensureUploadDir('uploads/appeal-documents');
+ensureUploadDir('uploads/withdrawal-evidence');
 
 // Helper function to validate user authentication in filename generators
 const validateUserForUpload = (req, cb) => {
@@ -119,6 +121,27 @@ const photoStorage = multer.diskStorage({
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname);
     cb(null, `photo-${userId}-${uniqueSuffix}${ext}`);
+  },
+});
+
+// Configure multer storage for appeal documents
+const appealDocumentStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = 'uploads/appeal-documents';
+    ensureUploadDir(dir);
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    // Validate user authentication
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    
+    // Use _id if available, otherwise use id (Mongoose documents have both)
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `appeal-doc-${userId}-${uniqueSuffix}${ext}`);
   },
 });
 
@@ -235,6 +258,70 @@ const photoFileFilter = (req, file, cb) => {
   }
 };
 
+// File filter for appeal documents - PDF, DOC, DOCX, and images
+const appealDocumentFileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+  ];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(
+      new AppError(
+        'Invalid file type. Only PDF, DOC, DOCX, JPG, and PNG files are allowed.',
+        400
+      ),
+      false
+    );
+  }
+};
+
+// Configure multer storage for withdrawal payment evidence
+const withdrawalEvidenceStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = 'uploads/withdrawal-evidence';
+    ensureUploadDir(dir);
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    const withdrawalId = (req.params && req.params.id) || 'unknown';
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `withdrawal-${withdrawalId}-${userId}-${uniqueSuffix}${ext}`);
+  },
+});
+
+const withdrawalEvidenceFileFilter = (req, file, cb) => {
+  const allowedTypes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+  ];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(
+      new AppError(
+        'Invalid file type. Only PDF, DOC, DOCX, JPG, and PNG files are allowed.',
+        400
+      ),
+      false
+    );
+  }
+};
+
 // Create multer upload instance for resumes
 const uploadResume = multer({
   storage: resumeStorage,
@@ -280,10 +367,30 @@ const uploadPhoto = multer({
   },
 });
 
+// Create multer upload instance for appeal documents
+const uploadAppealDocument = multer({
+  storage: appealDocumentStorage,
+  fileFilter: appealDocumentFileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max file size
+  },
+});
+
+// Create multer upload instance for withdrawal payment evidence
+const uploadWithdrawalEvidence = multer({
+  storage: withdrawalEvidenceStorage,
+  fileFilter: withdrawalEvidenceFileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max file size
+  },
+});
+
 module.exports = {
   uploadResume,
   uploadVerificationDocument,
   uploadAdditionalDocument,
   uploadStartupLogo,
   uploadPhoto,
+  uploadAppealDocument,
+  uploadWithdrawalEvidence,
 };

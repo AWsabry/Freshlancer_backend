@@ -5,6 +5,9 @@ const adminController = require('../controllers/adminController');
 const analyticsController = require('../controllers/analyticsController');
 const logController = require('../controllers/logController');
 const universityController = require('../controllers/universityController');
+const { uploadWithdrawalEvidence } = require('../middleware/upload');
+const { uploadWithErrorHandling } = require('../middleware/uploadErrorHandler');
+const withdrawalController = require('../controllers/withdrawalController');
 
 // Protect all routes and restrict to admin only
 router.use(authController.protect);
@@ -45,6 +48,23 @@ router.get('/applications', adminController.getAllApplications);
 
 // Jobs overview
 router.get('/jobs', adminController.getAllJobs);
+
+// Contracts overview
+router.get('/contracts', adminController.getAllContracts);
+
+// Withdrawals overview
+router.get('/withdrawals', adminController.getAllWithdrawals);
+router.patch(
+  '/withdrawals/:id',
+  uploadWithErrorHandling(uploadWithdrawalEvidence.single('paymentEvidence')),
+  withdrawalController.updateWithdrawalStatus
+);
+
+// Appeals overview
+router.get('/appeals', require('../controllers/appealController').getAllAppeals);
+router.patch('/appeals/:id/status', require('../controllers/appealController').updateAppealStatus);
+router.post('/appeals/:id/resolve', require('../controllers/appealController').resolveAppeal);
+router.post('/appeals/:id/admin-note', require('../controllers/appealController').addAdminNote);
 
 // Log management routes
 router.get('/logs/files', logController.getLogFiles);

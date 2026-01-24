@@ -9,7 +9,10 @@ dotenv.config({ path: './config.env' });
 
 // Connect to database
 mongoose
-  .connect(process.env.DATABASE)
+  .connect(process.env.DATABASE, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
   .then(() => {
     console.log('✅ Database connected successfully');
     importUniversities();
