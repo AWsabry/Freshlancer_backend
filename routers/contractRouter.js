@@ -41,5 +41,17 @@ router.post(
   contractController.approveMilestone
 );
 
+router.post(
+  '/:id/complete-after-appeal',
+  authController.restrictTo('client'),
+  contractController.completeContractAfterAppeal
+);
+
+router.post(
+  '/:id/cancel-after-appeal',
+  authController.restrictTo('client'),
+  contractController.cancelContractAfterAppeal
+);
+
 module.exports = router;
 

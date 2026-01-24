@@ -8,7 +8,10 @@ dotenv.config({ path: path.resolve(__dirname, '../config.env') });
 const DB = process.env.DATABASE;
 
 mongoose
-  .connect(DB)
+  .connect(DB, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
   .then(() => console.log('✅ Database connected successfully'))
   .catch((err) => {
     console.error('❌ Database connection error:', err);

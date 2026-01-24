@@ -19,7 +19,8 @@
     "test:integration": "cross-env NODE_ENV=test jest tests/integration",
     "test:unit": "cross-env NODE_ENV=test jest tests/unit",
     "import:universities": "node scripts/importUniversities.js",
-    "update:universities-status": "node scripts/updateUniversitiesStatus.js"
+    "update:universities-status": "node scripts/updateUniversitiesStatus.js",
+    "migrate:drop-contract-jobapp-unique": "node migrations/dropContractJobApplicationUniqueIndex.js"
   },
   "author": "Abdelrahman Wael",
   "license": "ISC",
@@ -47,6 +48,7 @@
     "pug": "^3.0.2",
     "sharp": "^0.31.3",
     "slugify": "^1.6.5",
+    "socket.io": "^4.8.3",
     "validator": "^13.7.0",
     "xss-clean": "^0.1.1"
   },

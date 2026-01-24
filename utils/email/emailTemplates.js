@@ -908,6 +908,231 @@ const EMAIL_TEMPLATES = {
       ),
     };
   },
+
+  'withdrawal-requested': (options) => {
+    const data = [
+      { label: 'Transaction ID', value: options.transactionId || 'N/A' },
+      { label: 'Amount', value: options.amount ? `${options.currency || ''} ${options.amount}` : 'N/A' },
+      {
+        label: 'Requested At',
+        value: new Date().toLocaleString(),
+      },
+    ];
+    return {
+      subject: options.subject || 'Withdrawal request submitted 💰',
+      content: createEmailWrapper(
+        createHeader('Withdrawal Request Submitted 💰') +
+          createGreeting(options.name) +
+          createParagraph(
+            'Your withdrawal request has been submitted successfully. It will be reviewed by our admin team and processed to your bank account. You will receive a notification once it is approved and processed.'
+          ) +
+          createDataTable(data) +
+          createEmailButton(options.dashboardUrl || '#', 'View Wallet'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'withdrawal-status-processing': (options) => {
+    const data = [
+      { label: 'Amount', value: options.amount != null ? `${options.currency || 'EGP'} ${Number(options.amount).toFixed(2)}` : 'N/A' },
+      { label: 'Status', value: 'Processing' },
+      { label: 'Updated At', value: (options.updatedAt && new Date(options.updatedAt).toLocaleString()) || new Date().toLocaleString() },
+    ];
+    return {
+      subject: options.subject || 'Withdrawal is being processed 💳',
+      content: createEmailWrapper(
+        createHeader('Withdrawal Update – Processing 💳') +
+          createGreeting(options.name) +
+          createParagraph(
+            'Your withdrawal request has been accepted and is now being processed. The funds will be sent to your account at the beginning of every month.'
+          ) +
+          createDataTable(data) +
+          (options.adminNotes ? createParagraph(`<strong>Admin note:</strong> ${options.adminNotes}`) : '') +
+          createEmailButton(options.dashboardUrl || '#', 'View Wallet'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'withdrawal-status-completed': (options) => {
+    const data = [
+      { label: 'Amount', value: options.amount != null ? `${options.currency || 'EGP'} ${Number(options.amount).toFixed(2)}` : 'N/A' },
+      { label: 'Status', value: 'Completed' },
+      { label: 'Completed At', value: (options.completedAt && new Date(options.completedAt).toLocaleString()) || new Date().toLocaleString() },
+    ];
+    const evidenceNote = options.hasPaymentEvidence
+      ? createParagraph(
+          'A payment evidence document (e.g. transfer receipt) is attached to this email for your records.'
+        )
+      : '';
+    return {
+      subject: options.subject || 'Withdrawal completed ✅',
+      content: createEmailWrapper(
+        createHeader('Withdrawal Completed ✅') +
+          createGreeting(options.name) +
+          createParagraph(
+            'Your withdrawal has been completed. The funds have been sent to your account.'
+          ) +
+          createDataTable(data) +
+          evidenceNote +
+          (options.adminNotes ? createParagraph(`<strong>Admin note:</strong> ${options.adminNotes}`) : '') +
+          createEmailButton(options.dashboardUrl || '#', 'View Wallet'),
+        BRAND_COLORS.success
+      ),
+    };
+  },
+
+  'withdrawal-status-rejected': (options) => {
+    const data = [
+      { label: 'Amount', value: options.amount != null ? `${options.currency || 'EGP'} ${Number(options.amount).toFixed(2)}` : 'N/A' },
+      { label: 'Status', value: 'Rejected' },
+      { label: 'Rejected At', value: (options.rejectedAt && new Date(options.rejectedAt).toLocaleString()) || new Date().toLocaleString() },
+    ];
+    const reasonHtml = options.rejectedReason
+      ? createParagraph(`<strong>Reason:</strong> ${options.rejectedReason}`)
+      : '';
+    return {
+      subject: options.subject || 'Withdrawal rejected ❌',
+      content: createEmailWrapper(
+        createHeader('Withdrawal Rejected ❌') +
+          createGreeting(options.name) +
+          createParagraph(
+            'Your withdrawal request was rejected. The amount remains in your wallet. You can submit a new request or contact support if you have questions.'
+          ) +
+          createDataTable(data) +
+          reasonHtml +
+          (options.adminNotes ? createParagraph(`<strong>Admin note:</strong> ${options.adminNotes}`) : '') +
+          createEmailButton(options.dashboardUrl || '#', 'View Wallet'),
+        BRAND_COLORS.error
+      ),
+    };
+  },
+
+  'appeal-created': (options) => {
+    const reasonLabels = {
+      non_payment: 'Non-Payment',
+      poor_quality: 'Poor Quality Work',
+      contract_violation: 'Contract Violation',
+      missed_deadline: 'Missed Deadline',
+      other: 'Other',
+    };
+    const data = [
+      { label: 'Appeal ID', value: options.appealId || 'N/A' },
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Reason', value: reasonLabels[options.reason] || options.reason || 'N/A' },
+      { label: 'Filed By', value: options.openerName || 'N/A' },
+    ];
+    return {
+      subject: options.subject || 'Appeal Filed Against You ⚠️',
+      content: createEmailWrapper(
+        createHeader('Appeal Filed Against You ⚠️') +
+          createGreeting(options.name) +
+          createParagraph(
+            `${options.openerName || 'A user'} has filed an appeal regarding your contract. Please review the appeal details and respond promptly.`
+          ) +
+          createParagraph(`<strong>Reason:</strong> ${reasonLabels[options.reason] || options.reason || 'N/A'}`) +
+          createParagraph(`<strong>Description:</strong> ${options.description || 'No description provided'}`) +
+          createDataTable(data) +
+          createEmailButton(options.dashboardUrl || '#', 'View Appeal'),
+        BRAND_COLORS.warning
+      ),
+    };
+  },
+  'appeal-message': (options) => {
+    return {
+      subject: options.subject || 'New Message in Appeal 💬',
+      content: createEmailWrapper(
+        createHeader('New Message in Appeal 💬') +
+          createGreeting(options.name) +
+          createParagraph(`${options.senderName || 'A user'} sent a new message in the appeal chat. Please review and respond.`) +
+          createEmailButton(options.dashboardUrl || '#', 'View Appeal'),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+  'appeal-closed': (options) => {
+    return {
+      subject: options.subject || 'Appeal Closed ✅',
+      content: createEmailWrapper(
+        createHeader('Appeal Closed ✅') +
+          createGreeting(options.name) +
+          createParagraph(
+            `${options.openerName || 'The appeal opener'} has closed the appeal. The contract is now active again and you can continue working.`
+          ) +
+          createEmailButton(options.dashboardUrl || '#', 'View Appeal'),
+        BRAND_COLORS.success
+      ),
+    };
+  },
+  'appeal-resolved': (options) => {
+    const decisionLabels = {
+      favor_opener: 'Favor of Appeal Opener',
+      favor_respondent: 'Favor of Respondent',
+      partial: 'Partial Resolution',
+      dismissed: 'Dismissed',
+    };
+    const data = [
+      { label: 'Appeal ID', value: options.appealId || 'N/A' },
+      { label: 'Decision', value: decisionLabels[options.decision] || options.decision || 'N/A' },
+    ];
+    if (options.adminNotes) {
+      data.push({ label: 'Admin Notes', value: options.adminNotes });
+    }
+    return {
+      subject: options.subject || 'Appeal Resolved ✅',
+      content: createEmailWrapper(
+        createHeader('Appeal Resolved ✅') +
+          createGreeting(options.name) +
+          createParagraph('Your appeal has been reviewed and resolved by our admin team.') +
+          createDataTable(data) +
+          createEmailButton(options.dashboardUrl || '#', 'View Appeal'),
+        BRAND_COLORS.success
+      ),
+    };
+  },
+  'contract-completed': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+      { label: 'Client Name', value: options.clientName || 'N/A' },
+    ];
+    return {
+      subject: options.subject || 'Contract Completed ✅',
+      content: createEmailWrapper(
+        createHeader('Contract Completed ✅') +
+          createGreeting(options.name) +
+          createParagraph(
+            'The contract has been completed by the client after the appeal was closed. The contract will continue as originally signed.'
+          ) +
+          createDataTable(data) +
+          createEmailButton(options.dashboardUrl || '#', 'View Contract'),
+        BRAND_COLORS.success
+      ),
+    };
+  },
+  'contract-cancelled': (options) => {
+    const data = [
+      { label: 'Contract ID', value: options.contractId || 'N/A' },
+    ];
+    if (options.refundAmount) {
+      data.push({ label: 'Refunded Amount', value: options.refundAmount });
+    }
+    return {
+      subject: options.subject || 'Contract Cancelled ⚠️',
+      content: createEmailWrapper(
+        createHeader('Contract Cancelled ⚠️') +
+          createGreeting(options.name) +
+          createParagraph(
+            options.refundAmount
+              ? 'Your contract has been cancelled due to an appeal. Escrow funds have been refunded to your wallet.'
+              : 'Your contract has been cancelled due to an appeal.'
+          ) +
+          createDataTable(data) +
+          createEmailButton(options.dashboardUrl || '#', 'View Contracts'),
+        BRAND_COLORS.warning
+      ),
+    };
+  },
 };
 
 /**

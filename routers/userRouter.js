@@ -2,6 +2,7 @@ const express = require('express');
 
 const router = express.Router();
 const authController = require('../controllers/auth/authController');
+const withdrawalController = require('../controllers/withdrawalController');
 const { uploadResume, uploadAdditionalDocument, uploadPhoto } = require('../middleware/upload');
 const { uploadWithErrorHandling } = require('../middleware/uploadErrorHandler');
 
@@ -38,5 +39,10 @@ router.delete('/deleteResume', authController.deleteResume);
 // Additional documents upload/delete routes
 router.post('/uploadAdditionalDocument', uploadWithErrorHandling(uploadAdditionalDocument.single('document')), authController.uploadAdditionalDocument);
 router.delete('/deleteAdditionalDocument', authController.deleteAdditionalDocument);
+
+// Withdrawal routes (student only)
+router.get('/withdrawal-minimums', withdrawalController.getWithdrawalMinimums);
+router.get('/withdrawals', withdrawalController.getMyWithdrawals);
+router.post('/withdrawal-request', withdrawalController.requestWithdrawal);
 
 module.exports = router;

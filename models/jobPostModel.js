@@ -37,16 +37,7 @@ const jobPostSchema = new mongoose.Schema({
     currency: {
       type: String,
       default: 'USD',
-      enum: [
-        // Major Currencies
-        'USD', 'EUR', 'EGP', 'GBP',
-        // Middle East
-        'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR', 'JOD', 'LBP', 'ILS', 'TRY',
-        // Africa
-        'ZAR', 'MAD', 'TND', 'DZD', 'NGN', 'KES', 'GHS', 'UGX', 'TZS', 'ETB',
-        // Europe
-        'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'HRK', 'RUB', 'UAH'
-      ],
+      enum: ['USD', 'EGP'],
     },
   },
   deadline: {

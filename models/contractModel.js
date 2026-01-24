@@ -186,7 +186,7 @@ const contractSchema = new mongoose.Schema(
       type: mongoose.Schema.ObjectId,
       ref: 'JobApplication',
       required: [true, 'Contract must belong to a job application'],
-      unique: true,
+      // Not unique: client may create a new contract after cancelling a previous one
     },
     client: {
       type: mongoose.Schema.ObjectId,
@@ -223,7 +223,7 @@ const contractSchema = new mongoose.Schema(
     currency: {
       type: String,
       required: [true, 'Currency is required'],
-      enum: ['USD', 'EUR', 'GBP', 'EGP'],
+      enum: ['USD', 'EGP'],
       default: 'EGP',
     },
     totalAmount: {
@@ -280,6 +280,12 @@ const contractSchema = new mongoose.Schema(
       type: String,
       enum: CONTRACT_STATUSES,
       default: 'draft',
+    },
+
+    activeAppeal: {
+      type: mongoose.Schema.ObjectId,
+      ref: 'Appeal',
+      default: null,
     },
 
     createdAt: {

@@ -3,6 +3,7 @@ const JobApplication = require('../models/jobApplicationModel');
 const User = require('../models/userModel');
 const Transaction = require('../models/transactionModel');
 const Notification = require('../models/notificationModel');
+const Appeal = require('../models/appealModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const paymobService = require('../utils/payment/paymob');
@@ -226,8 +227,11 @@ exports.createFromApplication = catchAsync(async (req, res, next) => {
     return next(AppError.forbidden('You can only create contracts for your own jobs', 'CONTRACT_NOT_OWNER'));
   }
 
-  // Prevent duplicates (also enforced by unique index on jobApplication)
-  const existing = await Contract.findOne({ jobApplication: application._id });
+  // Prevent duplicates unless the only existing contract is cancelled (client can create another)
+  const existing = await Contract.findOne({
+    jobApplication: application._id,
+    status: { $ne: 'cancelled' },
+  });
   if (existing) {
     return next(AppError.conflict('A contract already exists for this application', 'CONTRACT_ALREADY_EXISTS'));
   }
@@ -712,6 +716,17 @@ exports.fundMilestone = catchAsync(async (req, res, next) => {
   const contract = await Contract.findById(req.params.id);
   if (!contract) return next(AppError.notFound('Contract not found', 'CONTRACT_NOT_FOUND'));
 
+  // Check for active appeal
+  const hasActive = await Appeal.hasActiveAppeal(contract._id);
+  if (hasActive) {
+    return next(
+      AppError.badRequest(
+        'This contract has an active appeal. All operations are frozen until the appeal is resolved.',
+        'CONTRACT_FROZEN_BY_APPEAL'
+      )
+    );
+  }
+
   if (req.user.role !== 'client' || !requireClientParty(contract, req.user._id)) {
     return next(AppError.forbidden('Only the contract client can fund milestones', 'CONTRACT_FUND_FORBIDDEN'));
   }
@@ -906,6 +921,17 @@ exports.submitMilestone = catchAsync(async (req, res, next) => {
   const contract = await Contract.findById(req.params.id);
   if (!contract) return next(AppError.notFound('Contract not found', 'CONTRACT_NOT_FOUND'));
 
+  // Check for active appeal
+  const hasActive = await Appeal.hasActiveAppeal(contract._id);
+  if (hasActive) {
+    return next(
+      AppError.badRequest(
+        'This contract has an active appeal. All operations are frozen until the appeal is resolved.',
+        'CONTRACT_FROZEN_BY_APPEAL'
+      )
+    );
+  }
+
   if (req.user.role !== 'student' || !requireStudentParty(contract, req.user._id)) {
     return next(AppError.forbidden('Only the contract student can submit milestones', 'CONTRACT_SUBMIT_FORBIDDEN'));
   }
@@ -975,6 +1001,17 @@ exports.approveMilestone = catchAsync(async (req, res, next) => {
 
   if (req.user.role !== 'client' || !requireClientParty(contract, req.user._id)) {
     return next(AppError.forbidden('Only the contract client can approve milestones', 'CONTRACT_APPROVE_FORBIDDEN'));
+  }
+
+  // Check for active appeal
+  const hasActive = await Appeal.hasActiveAppeal(contract._id);
+  if (hasActive) {
+    return next(
+      AppError.badRequest(
+        'This contract has an active appeal. All operations are frozen until the appeal is resolved.',
+        'CONTRACT_FROZEN_BY_APPEAL'
+      )
+    );
   }
 
   const milestone = contract.milestones.id(req.params.milestoneId);
@@ -1192,6 +1229,222 @@ exports.approveMilestone = catchAsync(async (req, res, next) => {
   res.status(200).json({
     status: 'success',
     data: { contract },
+  });
+});
+
+// Complete contract after appeal closure (client only)
+exports.completeContractAfterAppeal = catchAsync(async (req, res, next) => {
+  const contract = await Contract.findById(req.params.id);
+  if (!contract) {
+    return next(AppError.notFound('Contract not found', 'CONTRACT_NOT_FOUND'));
+  }
+
+  // Verify user is the client
+  if (String(contract.client._id || contract.client) !== String(req.user._id)) {
+    return next(AppError.forbidden('Only the client can complete the contract', 'CONTRACT_COMPLETE_FORBIDDEN'));
+  }
+
+  // Check if contract had a recently closed appeal (within last 7 days)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const closedAppeal = await Appeal.findOne({
+    contract: contract._id,
+    status: 'closed_by_opener',
+    updatedAt: { $gte: sevenDaysAgo },
+  });
+
+  if (!closedAppeal) {
+    return next(AppError.badRequest('No recently closed appeal found for this contract', 'NO_RECENT_APPEAL'));
+  }
+
+  if (contract.status === 'completed') {
+    return next(AppError.badRequest('Contract is already completed', 'CONTRACT_ALREADY_COMPLETED'));
+  }
+
+  if (contract.status === 'cancelled') {
+    return next(AppError.badRequest('Contract is already cancelled', 'CONTRACT_ALREADY_CANCELLED'));
+  }
+
+  // Mark contract as completed
+  contract.status = 'completed';
+  await contract.save();
+
+  // Notify student
+  const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+  const student = await User.findById(contract.student);
+
+  try {
+    await Notification.create({
+      user: contract.student,
+      type: 'contract_completed',
+      title: 'Contract Completed',
+      message: `${req.user.name} has completed the contract after the appeal was closed.`,
+      relatedId: contract._id,
+      relatedType: 'Contract',
+      actionUrl: `${frontendUrl}/student/contracts?contractId=${contract._id}`,
+      icon: 'check',
+    });
+
+    if (student?.email) {
+      sendEmail({
+        type: 'contract-completed',
+        email: student.email,
+        name: student.name,
+        clientName: req.user.name,
+        contractId: contract._id.toString(),
+        dashboardUrl: `${frontendUrl}/student/contracts?contractId=${contract._id}`,
+      }).catch((e) => logger.error('❌ Failed to send contract-completed email:', e.message));
+    }
+  } catch (e) {
+    logger.error('❌ Failed to notify about contract completion:', e.message);
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { contract },
+    message: 'Contract marked as completed',
+  });
+});
+
+// Cancel contract after appeal closure (client only)
+exports.cancelContractAfterAppeal = catchAsync(async (req, res, next) => {
+  const contract = await Contract.findById(req.params.id);
+  if (!contract) {
+    return next(AppError.notFound('Contract not found', 'CONTRACT_NOT_FOUND'));
+  }
+
+  // Verify user is the client
+  if (String(contract.client._id || contract.client) !== String(req.user._id)) {
+    return next(AppError.forbidden('Only the client can cancel the contract', 'CONTRACT_CANCEL_FORBIDDEN'));
+  }
+
+  // Check if contract had a recently closed appeal (within last 7 days)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const closedAppeal = await Appeal.findOne({
+    contract: contract._id,
+    status: 'closed_by_opener',
+    updatedAt: { $gte: sevenDaysAgo },
+  });
+
+  if (!closedAppeal) {
+    return next(AppError.badRequest('No recently closed appeal found for this contract', 'NO_RECENT_APPEAL'));
+  }
+
+  if (contract.status === 'completed') {
+    return next(AppError.badRequest('Contract is already completed', 'CONTRACT_ALREADY_COMPLETED'));
+  }
+
+  if (contract.status === 'cancelled') {
+    return next(AppError.badRequest('Contract is already cancelled', 'CONTRACT_ALREADY_CANCELLED'));
+  }
+
+  // Calculate and refund escrow
+  const fundedMilestones = contract.milestones.filter((m) => m.state.status === 'funded' || m.state.status === 'submitted' || m.state.status === 'approved');
+  const escrowByCurrency = {};
+
+  fundedMilestones.forEach((milestone) => {
+    const currency = contract.currency;
+    const amount = roundMoney(milestone.state.fundedAmount || milestone.state.amount || 0);
+    if (amount > 0) {
+      escrowByCurrency[currency] = (escrowByCurrency[currency] || 0) + amount;
+    }
+  });
+
+  // Refund escrow to client
+  const client = await User.findById(contract.client);
+  if (!client) {
+    return next(AppError.serverError('Client not found', 'CLIENT_NOT_FOUND'));
+  }
+
+  if (!client.wallet) client.wallet = {};
+  if (!client.wallet.balances) client.wallet.balances = new Map();
+  if (!client.wallet.escrow) client.wallet.escrow = new Map();
+
+  const refundTransactions = [];
+
+  for (const [currency, totalAmount] of Object.entries(escrowByCurrency)) {
+    if (totalAmount <= 0) continue;
+
+    const currentEscrow = typeof client.wallet.escrow.get === 'function' 
+      ? client.wallet.escrow.get(currency) || 0 
+      : client.wallet.escrow[currency] || 0;
+    
+    const newEscrow = Math.max(0, currentEscrow - totalAmount);
+    
+    if (typeof client.wallet.escrow.set === 'function') {
+      client.wallet.escrow.set(currency, newEscrow);
+    } else {
+      client.wallet.escrow[currency] = newEscrow;
+    }
+
+    const currentBalance = typeof client.wallet.balances.get === 'function'
+      ? client.wallet.balances.get(currency) || 0
+      : client.wallet.balances[currency] || 0;
+    
+    const newBalance = currentBalance + totalAmount;
+    
+    if (typeof client.wallet.balances.set === 'function') {
+      client.wallet.balances.set(currency, newBalance);
+    } else {
+      client.wallet.balances[currency] = newBalance;
+    }
+
+    refundTransactions.push(
+      Transaction.create({
+        user: client._id,
+        type: 'escrow_refund',
+        amount: totalAmount,
+        currency,
+        status: 'completed',
+        paymentGateway: 'wallet',
+        paymentMethod: 'wallet',
+        relatedId: contract._id,
+        relatedType: 'Contract',
+        description: `Escrow refund after contract cancellation: ${contract.jobPost?.title || 'Contract'}`,
+      })
+    );
+  }
+
+  await Promise.all(refundTransactions);
+  await client.save();
+
+  // Mark contract as cancelled
+  contract.status = 'cancelled';
+  await contract.save();
+
+  // Notify student
+  const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+  const student = await User.findById(contract.student);
+
+  try {
+    await Notification.create({
+      user: contract.student,
+      type: 'contract_cancelled',
+      title: 'Contract Cancelled',
+      message: `${req.user.name} has cancelled the contract after the appeal was closed. All escrow funds have been refunded.`,
+      relatedId: contract._id,
+      relatedType: 'Contract',
+      actionUrl: `${frontendUrl}/student/contracts?contractId=${contract._id}`,
+      icon: 'x',
+    });
+
+    if (student?.email) {
+      sendEmail({
+        type: 'contract-cancelled',
+        email: student.email,
+        name: student.name,
+        clientName: req.user.name,
+        contractId: contract._id.toString(),
+        dashboardUrl: `${frontendUrl}/student/contracts?contractId=${contract._id}`,
+      }).catch((e) => logger.error('❌ Failed to send contract-cancelled email:', e.message));
+    }
+  } catch (e) {
+    logger.error('❌ Failed to notify about contract cancellation:', e.message);
+  }
+
+  res.status(200).json({
+    status: 'success',
+    data: { contract },
+    message: 'Contract cancelled and escrow refunded',
   });
 });
 

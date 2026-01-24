@@ -657,7 +657,7 @@ exports.getApplication = catchAsync(async (req, res, next) => {
   const application = await JobApplication.findById(req.params.id)
     .populate({
       path: 'jobPost',
-      select: 'title budget deadline status category description skillsRequired location client',
+      select: 'title budget deadline status category description skillsRequired location client projectDuration categorySpecRequirements',
       populate: {
         path: 'client',
         select: 'name email photo clientProfile',

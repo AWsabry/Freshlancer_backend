@@ -139,7 +139,7 @@ exports.upgradeToPremium = catchAsync(async (req, res, next) => {
   console.log('Coupon Code:', couponCode || 'None');
 
   // Validate currency
-  const supportedCurrencies = ['USD', 'EGP', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR', 'JOD', 'LBP', 'ILS', 'TRY', 'ZAR', 'MAD', 'TND', 'DZD', 'NGN', 'KES', 'GHS', 'UGX', 'TZS', 'ETB', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'HRK', 'RUB', 'UAH'];
+  const supportedCurrencies = ['USD', 'EGP'];
   if (!supportedCurrencies.includes(currency)) {
     return next(new AppError(`Currency ${currency} is not supported`, 400));
   }
