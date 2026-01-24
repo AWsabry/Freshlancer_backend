@@ -818,11 +818,15 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
           console.log('⚠️ Contract not found for deposit');
         }
 
-        // Update client wallet escrow balance (held funds)
+        // Update client wallet escrow balance (held funds) — principal only, not fees
         try {
           if (user) {
             const cur = transaction.currency;
-            const amt = transaction.amount;
+            const principal =
+              transaction.metadata?.get && transaction.metadata.get('principalAmount') !== undefined
+                ? Number(transaction.metadata.get('principalAmount'))
+                : Number(transaction.metadata?.principalAmount);
+            const amt = Number.isFinite(principal) && principal > 0 ? principal : transaction.amount;
             if (!user.wallet) user.wallet = {};
             if (!user.wallet.escrow) user.wallet.escrow = new Map();
             const current = user.wallet.escrow.get
@@ -851,7 +855,11 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
           const refreshed = await Contract.findById(contractId);
           const ms = refreshed?.milestones?.id ? refreshed.milestones.id(milestoneId) : null;
           const milestoneTitle = ms?.plan?.title || 'Milestone';
-          const amount = ms?.state?.amount || transaction.amount;
+          const principal =
+            transaction.metadata?.get && transaction.metadata.get('principalAmount') !== undefined
+              ? Number(transaction.metadata.get('principalAmount'))
+              : Number(transaction.metadata?.principalAmount);
+          const amount = ms?.state?.amount || (Number.isFinite(principal) && principal > 0 ? principal : transaction.amount);
 
           const Notification = require('../models/notificationModel');
           if (refreshed?.client?._id && refreshed?.student?._id) {
