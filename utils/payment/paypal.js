@@ -144,15 +144,17 @@ class PaypalService {
     const baseUrl = getBaseUrl();
     const token = await this.getAccessToken();
 
+    // Capture is critical (user already approved); use longer timeout and more retries
+    const captureTimeoutMs = 25000;
     const response = await withRetry(
       async () => {
         return await httpClient.post(
           `${baseUrl}/v2/checkout/orders/${orderId}/capture`,
           {},
-          { headers: { Authorization: `Bearer ${token}` }, timeout: PAYPAL_REQUEST_TIMEOUT_MS }
+          { headers: { Authorization: `Bearer ${token}` }, timeout: captureTimeoutMs }
         );
       },
-      { maxRetries: 1, retryDelay: 500, context: 'PayPal Capture Order' }
+      { maxRetries: 3, retryDelay: 1000, context: 'PayPal Capture Order' }
     );
 
     const status = response.data?.status;
