@@ -4,6 +4,7 @@ const User = require('../models/userModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const paypalService = require('../utils/payment/paypal');
+const logger = require('../utils/logger');
 
 async function markEscrowDepositFunded(transaction) {
   const contractId = transaction?.metadata?.get
@@ -88,24 +89,38 @@ exports.createOrder = catchAsync(async (req, res, next) => {
   });
 });
 
-// Public: capture PayPal order after approval redirect
-exports.capture = catchAsync(async (req, res, next) => {
+// Public: capture PayPal order after approval redirect (browser GET).
+// On any error we redirect to frontend failed page so the user never sees JSON.
+const getFrontendUrl = () => process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+
+exports.capture = async (req, res) => {
+  const frontendUrl = getFrontendUrl();
   const txId = req.query.tx;
   const orderId = req.query.token || req.query.orderId;
 
   if (!txId) {
-    return next(AppError.badRequest('Missing tx query param', 'PAYPAL_TX_MISSING'));
+    logger.warn('PayPal capture: missing tx', { query: req.query });
+    return res.redirect(`${frontendUrl}/payment/failed?error=invalid_request`);
   }
   if (!orderId) {
-    return next(AppError.badRequest('Missing PayPal order token', 'PAYPAL_TOKEN_MISSING'));
+    logger.warn('PayPal capture: missing order token', { query: req.query });
+    return res.redirect(`${frontendUrl}/payment/failed?error=invalid_request`);
   }
 
-  const tx = await Transaction.findById(txId);
-  if (!tx) return next(AppError.notFound('Transaction not found', 'TRANSACTION_NOT_FOUND'));
+  let tx;
+  try {
+    tx = await Transaction.findById(txId);
+  } catch (e) {
+    logger.error('PayPal capture: transaction lookup failed', { txId, error: e.message });
+    return res.redirect(`${frontendUrl}/payment/failed?error=capture_failed`);
+  }
+  if (!tx) {
+    logger.warn('PayPal capture: transaction not found', { txId });
+    return res.redirect(`${frontendUrl}/payment/failed?error=invalid_request`);
+  }
 
   // Idempotency: if already completed, just redirect
   if (tx.status === 'completed') {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     if (tx.type === 'package_purchase') {
       return res.redirect(`${frontendUrl}/payment/success?type=package`);
     }
@@ -118,29 +133,45 @@ exports.capture = catchAsync(async (req, res, next) => {
     return res.redirect(`${frontendUrl}/client/contracts?payment=success`);
   }
 
-  const captureResult = await paypalService.captureOrder(orderId);
-
-  // Mark transaction
-  tx.status = captureResult.status === 'COMPLETED' ? 'completed' : 'failed';
-  tx.paymentGateway = 'paypal';
-  tx.paymentMethod = 'paypal';
-  if (tx.metadata?.set) {
-    tx.metadata.set('paypalOrderId', orderId);
-    tx.metadata.set('paypalCapture', captureResult.raw);
-  } else {
-    tx.metadata = {
-      ...(tx.metadata?.toObject ? tx.metadata.toObject() : tx.metadata),
-      paypalOrderId: orderId,
-      paypalCapture: captureResult.raw,
-    };
+  let captureResult;
+  try {
+    captureResult = await paypalService.captureOrder(orderId);
+  } catch (err) {
+    logger.error('PayPal capture: API call failed (redirecting to failed page)', {
+      orderId,
+      txId,
+      message: err.message,
+      code: err.code,
+      errorCode: err.errorCode,
+    });
+    return res.redirect(`${frontendUrl}/payment/failed?error=capture_failed`);
   }
-  await tx.save();
 
-  const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+  try {
+    // Mark transaction
+    tx.status = captureResult.status === 'COMPLETED' ? 'completed' : 'failed';
+    tx.paymentGateway = 'paypal';
+    tx.paymentMethod = 'paypal';
+    if (tx.metadata?.set) {
+      tx.metadata.set('paypalOrderId', orderId);
+      tx.metadata.set('paypalCapture', captureResult.raw);
+    } else {
+      tx.metadata = {
+        ...(tx.metadata?.toObject ? tx.metadata.toObject() : tx.metadata),
+        paypalOrderId: orderId,
+        paypalCapture: captureResult.raw,
+      };
+    }
+    await tx.save();
+  } catch (err) {
+    logger.error('PayPal capture: failed to save transaction', { txId, orderId, error: err.message });
+    return res.redirect(`${frontendUrl}/payment/failed?error=capture_failed`);
+  }
 
-  if (tx.status === 'completed') {
-    // Subscription payment: activate premium, update user, redirect to subscription success
-    if (tx.type === 'subscription_payment') {
+  try {
+    if (tx.status === 'completed') {
+      // Subscription payment: activate premium, update user, redirect to subscription success
+      if (tx.type === 'subscription_payment') {
       const Subscription = require('../models/subscriptionModel');
       const subscription = await Subscription.findById(tx.relatedId);
       if (subscription && (subscription.status !== 'active' || subscription.plan !== 'premium')) {
@@ -332,12 +363,6 @@ exports.capture = catchAsync(async (req, res, next) => {
         const milestone = contract && milestoneId ? contract.milestones.id(milestoneId) : null;
 
         if (contract && milestone) {
-          const frontendUrl =
-            process.env.FRONTEND_URL ||
-            (process.env.NODE_ENV === 'production'
-              ? 'https://freshlancer.online'
-              : 'http://localhost:3000');
-
           const milestoneTitle = milestone.plan.title;
           const amount = milestone.state.amount;
           const currency = tx.currency;
@@ -408,9 +433,13 @@ exports.capture = catchAsync(async (req, res, next) => {
     }
   }
 
-  if (tx.status === 'completed') {
-    return res.redirect(`${frontendUrl}/client/contracts?payment=success`);
+    if (tx.status === 'completed') {
+      return res.redirect(`${frontendUrl}/client/contracts?payment=success`);
+    }
+    return res.redirect(`${frontendUrl}/payment/failed?error=failed`);
+  } catch (err) {
+    logger.error('PayPal capture: post-save logic failed', { txId, orderId, error: err.message, stack: err.stack });
+    return res.redirect(`${frontendUrl}/payment/failed?error=capture_failed`);
   }
-  return res.redirect(`${frontendUrl}/payment/failed?reason=failed`);
-});
+};
 
