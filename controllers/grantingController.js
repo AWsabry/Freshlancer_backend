@@ -3,6 +3,7 @@ const Transaction = require('../models/transactionModel');
 const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
 const paymobService = require('../utils/payment/paymob');
+const paypalService = require('../utils/payment/paypal');
 const logger = require('../utils/logger');
 
 // Create a new granting/donation
@@ -65,9 +66,14 @@ exports.createGranting = catchAsync(async (req, res, next) => {
 
     console.log('✅ Granting created:', granting._id);
 
-    // Calculate processing fee (3% for EGP)
-    const processingFee = currency === 'EGP' ? amountNum * 0.03 : 0;
-    const totalAmount = amountNum + processingFee;
+    // Processing fee: EGP 3%; USD (PayPal) 2.9% + $0.30
+    let processingFee = 0;
+    if (currency === 'EGP') {
+      processingFee = amountNum * 0.03;
+    } else if (currency === 'USD') {
+      processingFee = amountNum * 0.029 + 0.30;
+    }
+    const totalAmount = Math.round((amountNum + processingFee) * 100) / 100;
 
     console.log('Payment calculation:', {
       originalAmount: amountNum,
@@ -247,10 +253,67 @@ exports.createGranting = catchAsync(async (req, res, next) => {
         return next(new AppError(`Failed to create payment intention: ${error.message}`, 500));
       }
     } else {
-      // USD payments - PayPal integration (to be implemented)
-      console.log('❌ USD payments not supported');
-      console.log('=== END CREATING GRANTING (ERROR) ===\n');
-      return next(new AppError('USD payments are not yet supported. Please use EGP.', 400));
+      // USD payments - PayPal
+      const baseUrl = process.env.BASE_URL;
+      const frontendUrl = process.env.FRONTEND_URL;
+      if (!baseUrl || !frontendUrl) {
+        return next(new AppError('Server URLs are not configured (BASE_URL, FRONTEND_URL)', 500));
+      }
+      try {
+        const { orderId, approvalUrl } = await paypalService.createOrder({
+          amount: totalAmount,
+          currency: 'USD',
+          description: message || 'Support Freshlancer - Donation',
+          customId: transaction._id.toString(),
+          returnUrl: `${baseUrl}/api/v1/paypal/capture?tx=${transaction._id.toString()}`,
+          cancelUrl: `${frontendUrl}/payment/failed?reason=cancelled`,
+        });
+
+        granting.paymentMethod = 'paypal';
+        await granting.save();
+        transaction.paymentGateway = 'paypal';
+        transaction.paymentMethod = 'paypal';
+        if (transaction.metadata && typeof transaction.metadata.set === 'function') {
+          transaction.metadata.set('paypalOrderId', orderId);
+          transaction.metadata.set('paypalApprovalUrl', approvalUrl);
+        } else {
+          const existing = transaction.metadata && typeof transaction.metadata.toObject === 'function'
+            ? transaction.metadata.toObject()
+            : (transaction.metadata instanceof Map ? Object.fromEntries(transaction.metadata) : { ...(transaction.metadata || {}) });
+          transaction.metadata = { ...existing, paypalOrderId: orderId, paypalApprovalUrl: approvalUrl };
+        }
+        await transaction.save();
+
+        logger.info('Granting PayPal order created', { grantingId: granting._id, orderId });
+
+        console.log('=== END CREATING GRANTING ===\n');
+        return res.status(201).json({
+          status: 'success',
+          message: 'Granting created successfully',
+          data: {
+            granting: {
+              id: granting._id,
+              amount: amountNum,
+              currency,
+              totalAmount,
+              processingFee,
+              status: granting.status,
+            },
+            gateway: 'paypal',
+            approvalUrl,
+            orderId,
+          },
+        });
+      } catch (error) {
+        if (error.errorCode === 'PAYPAL_NOT_CONFIGURED') {
+          return next(new AppError('PayPal is not configured. Add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET to the server environment.', 503));
+        }
+        console.error('PayPal order creation failed:', error);
+        granting.status = 'failed';
+        transaction.status = 'failed';
+        await Promise.all([granting.save(), transaction.save()]);
+        return next(new AppError(error.message || 'Failed to create PayPal payment. Please try again.', 500));
+      }
     }
   } catch (error) {
     console.error('❌ Unexpected error in createGranting:', error);

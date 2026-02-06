@@ -105,7 +105,16 @@ exports.capture = catchAsync(async (req, res, next) => {
 
   // Idempotency: if already completed, just redirect
   if (tx.status === 'completed') {
-    const frontendUrl = process.env.FRONTEND_URL;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    if (tx.type === 'package_purchase') {
+      return res.redirect(`${frontendUrl}/payment/success?type=package`);
+    }
+    if (tx.type === 'subscription_payment') {
+      return res.redirect(`${frontendUrl}/payment/success?type=subscription`);
+    }
+    if (tx.type === 'granting') {
+      return res.redirect(`${frontendUrl}/payment/success?type=supporter`);
+    }
     return res.redirect(`${frontendUrl}/client/contracts?payment=success`);
   }
 
@@ -127,8 +136,159 @@ exports.capture = catchAsync(async (req, res, next) => {
   }
   await tx.save();
 
+  const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
+
   if (tx.status === 'completed') {
-    // Ensure escrow deposit is only processed once
+    // Subscription payment: activate premium, update user, redirect to subscription success
+    if (tx.type === 'subscription_payment') {
+      const Subscription = require('../models/subscriptionModel');
+      const subscription = await Subscription.findById(tx.relatedId);
+      if (subscription && (subscription.status !== 'active' || subscription.plan !== 'premium')) {
+        subscription.plan = 'premium';
+        subscription.status = 'active';
+        subscription.startDate = Date.now();
+        const endDate = new Date();
+        endDate.setMonth(endDate.getMonth() + 1);
+        subscription.endDate = endDate;
+        subscription.lastPaymentDate = Date.now();
+        subscription.applicationLimitPerMonth = 100;
+        await subscription.save();
+
+        const user = await User.findById(tx.user);
+        if (user && user.studentProfile) {
+          user.studentProfile.subscriptionTier = 'premium';
+          user.studentProfile.subscriptionStartDate = Date.now();
+          const expiryDate = new Date();
+          expiryDate.setMonth(expiryDate.getMonth() + 1);
+          user.studentProfile.subscriptionExpiryDate = expiryDate;
+          await user.save({ validateBeforeSave: false });
+        }
+
+        const meta = tx.metadata?.toObject ? tx.metadata.toObject() : tx.metadata || {};
+        if (meta.coupon?.id && !meta.couponUsageRecorded && user) {
+          try {
+            const Coupon = require('../models/couponModel');
+            const coupon = await Coupon.findById(meta.coupon.id);
+            if (coupon && !coupon.hasUserUsedCoupon(user._id)) {
+              await coupon.recordUsage(user._id);
+              meta.couponUsageRecorded = true;
+              tx.metadata = meta;
+              await tx.save();
+            }
+          } catch (e) {
+            // best-effort
+          }
+        }
+
+        const Notification = require('../models/notificationModel');
+        const sendEmail = require('../utils/email');
+        await Notification.create({
+          user: tx.user,
+          type: 'subscription_renewed',
+          title: 'Premium Subscription Activated',
+          message: 'Your premium subscription is now active! You can now apply to up to 100 jobs per month.',
+          relatedId: subscription._id,
+          relatedType: 'Subscription',
+          icon: 'payment',
+        }).catch(() => {});
+        if (user?.email) {
+          sendEmail({
+            type: 'subscription-confirmation',
+            email: user.email,
+            name: user.name,
+            plan: 'premium',
+            billingCycle: subscription.billingCycle || 'monthly',
+            startDate: subscription.startDate,
+            endDate: subscription.endDate,
+            dashboardUrl: `${frontendUrl}/student/jobs`,
+          }).catch(() => {});
+        }
+      }
+      return res.redirect(`${frontendUrl}/payment/success?type=subscription`);
+    }
+
+    // Granting/donation (Support Us): mark completed, notify, redirect
+    if (tx.type === 'granting') {
+      const grantingId = tx.metadata?.get ? tx.metadata.get('grantingId') : tx.metadata?.grantingId;
+      if (grantingId) {
+        const Granting = require('../models/grantingModel');
+        const granting = await Granting.findById(grantingId);
+        if (granting && granting.status !== 'completed') {
+          granting.status = 'completed';
+          granting.completedAt = Date.now();
+          if (!granting.transaction) granting.transaction = tx._id;
+          await granting.save();
+
+          const user = await User.findById(tx.user);
+          const Notification = require('../models/notificationModel');
+          const sendEmail = require('../utils/email');
+          await Notification.create({
+            user: tx.user,
+            type: 'system_announcement',
+            title: 'Thank You for Your Support!',
+            message: `Thank you for supporting Freshlancer! Your contribution of ${granting.currency} ${granting.amount} helps us support students.`,
+            relatedId: granting._id,
+            relatedType: 'Granting',
+            icon: 'payment',
+          }).catch(() => {});
+          if (user?.email) {
+            sendEmail({
+              type: 'donation-confirmation',
+              email: user.email,
+              name: user.name,
+              amount: granting.amount,
+              currency: granting.currency,
+              paymentMethod: 'PayPal',
+              transactionDate: granting.completedAt || Date.now(),
+              message: granting.message || '',
+            }).catch(() => {});
+          }
+        }
+      }
+      return res.redirect(`${frontendUrl}/payment/success?type=supporter`);
+    }
+
+    // Package purchase: add points, record coupon, redirect to package success
+    if (tx.type === 'package_purchase') {
+      const user = await User.findById(tx.user);
+      if (user && !tx.pointsProcessed && tx.points) {
+        if (user.clientProfile) {
+          const previousPoints = user.clientProfile.pointsRemaining || 0;
+          user.clientProfile.pointsRemaining = previousPoints + tx.points;
+          await user.save({ validateBeforeSave: false });
+          tx.pointsProcessed = true;
+          await tx.save();
+        }
+        const meta = tx.metadata?.toObject ? tx.metadata.toObject() : tx.metadata || {};
+        if (meta.coupon?.id && !meta.couponUsageRecorded) {
+          try {
+            const Coupon = require('../models/couponModel');
+            const coupon = await Coupon.findById(meta.coupon.id);
+            if (coupon && !coupon.hasUserUsedCoupon(user._id)) {
+              await coupon.recordUsage(user._id);
+              meta.couponUsageRecorded = true;
+              tx.metadata = meta;
+              await tx.save();
+            }
+          } catch (e) {
+            // best-effort
+          }
+        }
+        const Notification = require('../models/notificationModel');
+        await Notification.create({
+          user: user._id,
+          type: 'system_announcement',
+          title: 'Points Added',
+          message: `${tx.points} points have been added to your account! You now have ${user.clientProfile.pointsRemaining} points available.`,
+          relatedId: tx._id,
+          relatedType: 'Transaction',
+          icon: 'payment',
+        }).catch(() => {});
+      }
+      return res.redirect(`${frontendUrl}/payment/success?type=package`);
+    }
+
+    // Escrow deposit: ensure only processed once
     const processed = tx.metadata?.get ? tx.metadata.get('escrowProcessed') : tx.metadata?.escrowProcessed;
     if (!processed) {
       await markEscrowDepositFunded(tx);
@@ -248,7 +408,6 @@ exports.capture = catchAsync(async (req, res, next) => {
     }
   }
 
-  const frontendUrl = process.env.FRONTEND_URL;
   if (tx.status === 'completed') {
     return res.redirect(`${frontendUrl}/client/contracts?payment=success`);
   }

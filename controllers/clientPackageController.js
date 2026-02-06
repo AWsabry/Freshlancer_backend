@@ -5,6 +5,7 @@ const Package = require('../models/packageModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const paymobService = require('../utils/payment/paymob');
+const paypalService = require('../utils/payment/paypal');
 
 // Currency conversion rate (USD to EGP)
 const USD_TO_EGP_RATE = 49.5;
@@ -149,9 +150,14 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
     }
   }
 
-  // Add processing fees (3% for EGP payments)
-  const processingFee = currency === 'EGP' ? totalAmount * 0.03 : 0;
-  const finalAmountWithFees = totalAmount + processingFee;
+  // Add processing fees: EGP 3%; USD (PayPal) 2.9% + $0.30
+  let processingFee = 0;
+  if (currency === 'EGP') {
+    processingFee = totalAmount * 0.03;
+  } else if (currency === 'USD') {
+    processingFee = totalAmount * 0.029 + 0.30;
+  }
+  const finalAmountWithFees = Math.round((totalAmount + processingFee) * 100) / 100;
 
   console.log('💰 Payment calculation:', {
     originalAmount,
@@ -257,10 +263,61 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
     }
   }
 
-  // For non-EGP currencies, payment gateway integration required
+  // If currency is USD, use PayPal
+  if (currency === 'USD') {
+    const baseUrl = process.env.BASE_URL;
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (!baseUrl || !frontendUrl) {
+      return next(new AppError('Server URLs are not configured (BASE_URL, FRONTEND_URL)', 500));
+    }
+    try {
+      const { orderId, approvalUrl } = await paypalService.createOrder({
+        amount: finalAmountWithFees,
+        currency: 'USD',
+        description: transaction.description,
+        customId: transaction._id.toString(),
+        returnUrl: `${baseUrl}/api/v1/paypal/capture?tx=${transaction._id.toString()}`,
+        cancelUrl: `${frontendUrl}/payment/failed?reason=cancelled`,
+      });
+
+      transaction.paymentGateway = 'paypal';
+      transaction.paymentMethod = 'paypal';
+      if (transaction.metadata && typeof transaction.metadata.set === 'function') {
+        transaction.metadata.set('paypalOrderId', orderId);
+        transaction.metadata.set('paypalApprovalUrl', approvalUrl);
+      } else {
+        const existing = transaction.metadata && typeof transaction.metadata.toObject === 'function'
+          ? transaction.metadata.toObject()
+          : (transaction.metadata instanceof Map ? Object.fromEntries(transaction.metadata) : { ...(transaction.metadata || {}) });
+        transaction.metadata = { ...existing, paypalOrderId: orderId, paypalApprovalUrl: approvalUrl };
+      }
+      await transaction.save();
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          transaction,
+          points: config.pointsTotal,
+          packageName: config.name,
+          gateway: 'paypal',
+          approvalUrl,
+          orderId,
+          message: 'Redirect to PayPal to complete payment',
+        },
+      });
+    } catch (error) {
+      if (error.errorCode === 'PAYPAL_NOT_CONFIGURED') {
+        return next(new AppError('PayPal is not configured. Add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET to the server environment.', 503));
+      }
+      console.error('PayPal order creation failed:', error);
+      return next(new AppError(error.message || 'Failed to create PayPal payment. Please try again.', 500));
+    }
+  }
+
+  // Other currencies not supported
   return next(
     new AppError(
-      'Payment gateway for this currency is not yet integrated. Please use EGP currency or contact support.',
+      'Payment gateway for this currency is not yet integrated. Please use USD or EGP.',
       400
     )
   );
