@@ -41,23 +41,23 @@ httpClient.interceptors.response.use(
       return Promise.reject(handleNetworkError(error, error.config?.url || 'External API'));
     }
 
-    // Handle HTTP errors
+    // Handle HTTP errors (4xx/5xx from server) - pass through so callers get real status and body
     if (error.response) {
       const { status, statusText, data } = error.response;
-      logger.error(`HTTP Error ${status}:`, { 
-        url: error.config?.url, 
+      logger.error(`HTTP Error ${status}:`, {
+        url: error.config?.url,
         method: error.config?.method,
-        statusText, 
-        data 
+        statusText,
+        data,
       });
-      
-      // Don't transform operational errors (if they're already AppError instances)
       if (data?.isOperational) {
         return Promise.reject(data);
       }
+      // Reject with original error so callers can read error.response.status and error.response.data
+      return Promise.reject(error);
     }
 
-    // Transform to network error
+    // Transform to network error only when there was no response (real network failure)
     return Promise.reject(handleNetworkError(error, error.config?.url || 'External API'));
   }
 );
