@@ -159,12 +159,21 @@ exports.capture = async (req, res) => {
   try {
     captureResult = await paypalService.captureOrder(orderId);
   } catch (err) {
+    const paypalStatus = err.response?.status;
+    const paypalBody = err.response?.data;
     logger.error('PayPal capture: API call failed (redirecting to failed page)', {
       orderId,
       txId,
       message: err.message,
       code: err.code,
       errorCode: err.errorCode,
+      paypalStatus,
+      paypalResponse: paypalBody,
+    });
+    console.log('[PayPal capture] REDIRECT: capture API failed', {
+      paypalStatus,
+      paypalBody: paypalBody ? JSON.stringify(paypalBody) : undefined,
+      message: err.message,
     });
     return res.redirect(`${frontendUrl}/payment/failed?error=capture_failed`);
   }
