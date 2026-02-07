@@ -259,6 +259,7 @@ exports.createGranting = catchAsync(async (req, res, next) => {
       if (!baseUrl || !frontendUrl) {
         return next(new AppError('Server URLs are not configured (BASE_URL, FRONTEND_URL)', 500));
       }
+      const redirectBaseUrl = req.body.redirectBaseUrl || req.get('X-Frontend-Origin') || null;
       try {
         const { orderId, approvalUrl } = await paypalService.createOrder({
           amount: totalAmount,
@@ -276,11 +277,12 @@ exports.createGranting = catchAsync(async (req, res, next) => {
         if (transaction.metadata && typeof transaction.metadata.set === 'function') {
           transaction.metadata.set('paypalOrderId', orderId);
           transaction.metadata.set('paypalApprovalUrl', approvalUrl);
+          if (redirectBaseUrl) transaction.metadata.set('redirectBaseUrl', redirectBaseUrl);
         } else {
           const existing = transaction.metadata && typeof transaction.metadata.toObject === 'function'
             ? transaction.metadata.toObject()
             : (transaction.metadata instanceof Map ? Object.fromEntries(transaction.metadata) : { ...(transaction.metadata || {}) });
-          transaction.metadata = { ...existing, paypalOrderId: orderId, paypalApprovalUrl: approvalUrl };
+          transaction.metadata = { ...existing, paypalOrderId: orderId, paypalApprovalUrl: approvalUrl, ...(redirectBaseUrl && { redirectBaseUrl }) };
         }
         await transaction.save();
 

@@ -60,6 +60,7 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     return next(AppError.serverError('Server URLs are not configured', 'URLS_NOT_CONFIGURED'));
   }
 
+  const redirectBaseUrl = req.body.redirectBaseUrl || req.get('X-Frontend-Origin') || null;
   const { orderId, approvalUrl } = await paypalService.createOrder({
     amount: tx.amount,
     currency: tx.currency,
@@ -74,11 +75,13 @@ exports.createOrder = catchAsync(async (req, res, next) => {
   if (tx.metadata?.set) {
     tx.metadata.set('paypalOrderId', orderId);
     tx.metadata.set('paypalApprovalUrl', approvalUrl);
+    if (redirectBaseUrl) tx.metadata.set('redirectBaseUrl', redirectBaseUrl);
   } else {
     tx.metadata = {
       ...(tx.metadata?.toObject ? tx.metadata.toObject() : tx.metadata),
       paypalOrderId: orderId,
       paypalApprovalUrl: approvalUrl,
+      ...(redirectBaseUrl && { redirectBaseUrl }),
     };
   }
   await tx.save();
@@ -93,8 +96,24 @@ exports.createOrder = catchAsync(async (req, res, next) => {
 // On any error we redirect to frontend failed page so the user never sees JSON.
 const getFrontendUrl = () => process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? 'https://freshlancer.online' : 'http://localhost:3000');
 
+const ALLOWED_REDIRECT_ORIGINS = [
+  'http://localhost',
+  'https://freshlancer.online',
+  'http://freshlancer.online',
+  'https://www.freshlancer.online',
+  'http://www.freshlancer.online',
+];
+function getAllowedRedirectBase(tx) {
+  const base = tx?.metadata?.get ? tx.metadata.get('redirectBaseUrl') : tx?.metadata?.redirectBaseUrl;
+  if (!base || typeof base !== 'string') return null;
+  const normalized = base.replace(/\/+$/, '');
+  const allowed = ALLOWED_REDIRECT_ORIGINS.some((origin) => normalized === origin || normalized.startsWith(origin + ':'));
+  return allowed ? normalized : null;
+}
+
 exports.capture = async (req, res) => {
-  const frontendUrl = getFrontendUrl();
+  const defaultFrontendUrl = getFrontendUrl();
+  let frontendUrl = defaultFrontendUrl;
   const txId = req.query.tx;
   const orderId = req.query.token || req.query.orderId;
 
@@ -112,12 +131,15 @@ exports.capture = async (req, res) => {
     tx = await Transaction.findById(txId);
   } catch (e) {
     logger.error('PayPal capture: transaction lookup failed', { txId, error: e.message });
-    return res.redirect(`${frontendUrl}/payment/failed?error=capture_failed`);
+    return res.redirect(`${defaultFrontendUrl}/payment/failed?error=capture_failed`);
   }
   if (!tx) {
     logger.warn('PayPal capture: transaction not found', { txId });
-    return res.redirect(`${frontendUrl}/payment/failed?error=invalid_request`);
+    return res.redirect(`${defaultFrontendUrl}/payment/failed?error=invalid_request`);
   }
+
+  const redirectBase = getAllowedRedirectBase(tx);
+  if (redirectBase) frontendUrl = redirectBase;
 
   // Idempotency: if already completed, just redirect
   if (tx.status === 'completed') {
