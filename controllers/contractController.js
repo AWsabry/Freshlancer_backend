@@ -877,12 +877,12 @@ exports.fundMilestone = catchAsync(async (req, res, next) => {
     });
   }
 
-  // USD (PayPal) will be implemented in backend-payments-escrow todo
   const baseUrl = process.env.BASE_URL;
   const frontendUrl = process.env.FRONTEND_URL;
   if (!baseUrl || !frontendUrl) {
     return next(AppError.serverError('Server URLs are not configured', 'URLS_NOT_CONFIGURED'));
   }
+  const redirectBaseUrl = req.body.redirectBaseUrl || req.get('X-Frontend-Origin') || null;
 
   const { orderId, approvalUrl } = await paypalService.createOrder({
     amount: totalCharge,
@@ -898,11 +898,13 @@ exports.fundMilestone = catchAsync(async (req, res, next) => {
   if (tx.metadata?.set) {
     tx.metadata.set('paypalOrderId', orderId);
     tx.metadata.set('paypalApprovalUrl', approvalUrl);
+    if (redirectBaseUrl) tx.metadata.set('redirectBaseUrl', redirectBaseUrl);
   } else {
     tx.metadata = {
       ...(tx.metadata?.toObject ? tx.metadata.toObject() : tx.metadata),
       paypalOrderId: orderId,
       paypalApprovalUrl: approvalUrl,
+      ...(redirectBaseUrl && { redirectBaseUrl }),
     };
   }
   await tx.save();
