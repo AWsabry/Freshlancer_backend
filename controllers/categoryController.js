@@ -70,6 +70,8 @@ exports.updateCategory = catchAsync(async (req, res, next) => {
     return next(new AppError('No category found with that ID', 404));
   }
 
+  const oldName = category.name;
+
   // Check if name is being updated and if it conflicts with existing category
   if (req.body.name && req.body.name !== category.name) {
     const existingCategory = await Category.findOne({
@@ -84,6 +86,15 @@ exports.updateCategory = catchAsync(async (req, res, next) => {
 
   Object.assign(category, req.body);
   await category.save();
+
+  // IMPORTANT: Job posts store category as a STRING (category name).
+  // If category name changes, update existing job posts to preserve integrity.
+  if (req.body.name && req.body.name !== oldName) {
+    await JobPost.updateMany(
+      { category: oldName },
+      { $set: { category: category.name } }
+    );
+  }
 
   res.status(200).json({
     status: 'success',

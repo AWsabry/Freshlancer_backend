@@ -159,6 +159,143 @@ exports.handleWebhook = catchAsync(async (req, res, next) => {
           console.log('Package already completed - skipping duplicate activation');
         }
       }
+    } else if (transaction.type === 'escrow_deposit') {
+      // Handle contract escrow deposit funding
+      const { Contract } = require('../models/contractModel');
+
+      const contractId = transaction.metadata?.get
+        ? transaction.metadata.get('contractId')
+        : transaction.metadata?.contractId;
+      const milestoneId = transaction.metadata?.get
+        ? transaction.metadata.get('milestoneId')
+        : transaction.metadata?.milestoneId;
+
+      const alreadyProcessed = transaction.metadata?.get
+        ? transaction.metadata.get('escrowProcessed')
+        : transaction.metadata?.escrowProcessed;
+
+      if (contractId && milestoneId && !alreadyProcessed) {
+        const contract = await Contract.findById(contractId);
+        if (contract) {
+          const milestone = contract.milestones.id(milestoneId);
+          if (milestone && milestone.state.status === 'unfunded') {
+            milestone.state.fundedAmount = milestone.state.amount;
+            milestone.state.fundedAt = Date.now();
+            milestone.state.status = 'funded';
+            if (contract.status === 'signed') contract.status = 'active';
+            await contract.save();
+          }
+        }
+
+        // Update client wallet escrow balance (held funds)
+        try {
+          if (user) {
+            const cur = transaction.currency;
+            const principal =
+              transaction.metadata?.get && transaction.metadata.get('principalAmount') !== undefined
+                ? Number(transaction.metadata.get('principalAmount'))
+                : Number(transaction.metadata?.principalAmount);
+            const amt = Number.isFinite(principal) && principal > 0 ? principal : transaction.amount;
+            if (!user.wallet) user.wallet = {};
+            if (!user.wallet.escrow) user.wallet.escrow = new Map();
+            const current = user.wallet.escrow.get
+              ? user.wallet.escrow.get(cur) || 0
+              : user.wallet.escrow[cur] || 0;
+            if (user.wallet.escrow.set) {
+              user.wallet.escrow.set(cur, current + amt);
+            } else {
+              user.wallet.escrow[cur] = current + amt;
+            }
+            user.wallet.updatedAt = Date.now();
+            await user.save({ validateBeforeSave: false });
+          }
+        } catch (e) {
+          console.log('⚠️ Failed to update client wallet escrow:', e.message);
+        }
+
+        // Notify + email both parties (best-effort)
+        try {
+          const frontendUrl =
+            process.env.FRONTEND_URL ||
+            (process.env.NODE_ENV === 'production'
+              ? 'https://freshlancer.online'
+              : 'http://localhost:3000');
+
+          const refreshed = await Contract.findById(contractId);
+          const ms = refreshed?.milestones?.id ? refreshed.milestones.id(milestoneId) : null;
+          const milestoneTitle = ms?.plan?.title || 'Milestone';
+          const principal =
+            transaction.metadata?.get && transaction.metadata.get('principalAmount') !== undefined
+              ? Number(transaction.metadata.get('principalAmount'))
+              : Number(transaction.metadata?.principalAmount);
+          const amount = ms?.state?.amount || (Number.isFinite(principal) && principal > 0 ? principal : transaction.amount);
+
+          if (refreshed?.client?._id && refreshed?.student?._id) {
+            await Notification.create([
+              {
+                user: refreshed.client._id,
+                type: 'milestone_funded',
+                title: 'Milestone Funded',
+                message: `Milestone "${milestoneTitle}" has been funded.`,
+                relatedId: refreshed._id,
+                relatedType: 'Contract',
+                actionUrl: `${frontendUrl}/client/contracts`,
+                icon: 'payment',
+              },
+              {
+                user: refreshed.student._id,
+                type: 'milestone_funded',
+                title: 'Milestone Funded',
+                message: `Client deposited escrow for "${milestoneTitle}". You can start working now, but you cannot withdraw until the client approves this milestone.`,
+                relatedId: refreshed._id,
+                relatedType: 'Contract',
+                actionUrl: `${frontendUrl}/student/contracts`,
+                icon: 'payment',
+              },
+            ]);
+          }
+
+          if (refreshed?.client?.email) {
+            sendEmail({
+              type: 'milestone-funded',
+              email: refreshed.client.email,
+              name: refreshed.client.name,
+              contractId: refreshed._id.toString(),
+              milestoneTitle,
+              amount,
+              currency: transaction.currency,
+              contractUrl: `${frontendUrl}/client/contracts`,
+              dashboardUrl: `${frontendUrl}/client/contracts`,
+            }).catch(() => {});
+          }
+          if (refreshed?.student?.email) {
+            sendEmail({
+              type: 'milestone-funded',
+              email: refreshed.student.email,
+              name: refreshed.student.name,
+              contractId: refreshed._id.toString(),
+              milestoneTitle,
+              amount,
+              currency: transaction.currency,
+              contractUrl: `${frontendUrl}/student/contracts`,
+              dashboardUrl: `${frontendUrl}/student/contracts`,
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.log('⚠️ Failed to notify milestone-funded:', e.message);
+        }
+
+        // Mark transaction as processed to avoid duplicate funding updates
+        if (transaction.metadata?.set) {
+          transaction.metadata.set('escrowProcessed', true);
+        } else {
+          transaction.metadata = {
+            ...(transaction.metadata?.toObject ? transaction.metadata.toObject() : transaction.metadata),
+            escrowProcessed: true,
+          };
+        }
+        await transaction.save();
+      }
     } else if (transaction.type === 'granting') {
       // Handle granting/donation payment
       const Granting = require('../models/grantingModel');
@@ -648,6 +785,154 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
 
       console.log('=== PACKAGE ACTIVATION COMPLETE ===\n');
     }
+    // Handle contract escrow deposit
+    else if (transaction.type === 'escrow_deposit') {
+      console.log('\n=== PROCESSING CONTRACT ESCROW DEPOSIT ===');
+
+      const { Contract } = require('../models/contractModel');
+      const contractId = transaction.metadata?.get
+        ? transaction.metadata.get('contractId')
+        : transaction.metadata?.contractId;
+      const milestoneId = transaction.metadata?.get
+        ? transaction.metadata.get('milestoneId')
+        : transaction.metadata?.milestoneId;
+
+      const alreadyProcessed = transaction.metadata?.get
+        ? transaction.metadata.get('escrowProcessed')
+        : transaction.metadata?.escrowProcessed;
+      if (!alreadyProcessed && contractId && milestoneId) {
+        const contract = await Contract.findById(contractId);
+        if (contract) {
+          const milestone = contract.milestones.id(milestoneId);
+          if (milestone && milestone.state.status === 'unfunded') {
+            milestone.state.fundedAmount = milestone.state.amount;
+            milestone.state.fundedAt = Date.now();
+            milestone.state.status = 'funded';
+            if (contract.status === 'signed') contract.status = 'active';
+            await contract.save();
+            console.log('✅ Contract milestone funded:', { contractId, milestoneId });
+          } else {
+            console.log('⚠️ Milestone not found or already funded');
+          }
+        } else {
+          console.log('⚠️ Contract not found for deposit');
+        }
+
+        // Update client wallet escrow balance (held funds) — principal only, not fees
+        try {
+          if (user) {
+            const cur = transaction.currency;
+            const principal =
+              transaction.metadata?.get && transaction.metadata.get('principalAmount') !== undefined
+                ? Number(transaction.metadata.get('principalAmount'))
+                : Number(transaction.metadata?.principalAmount);
+            const amt = Number.isFinite(principal) && principal > 0 ? principal : transaction.amount;
+            if (!user.wallet) user.wallet = {};
+            if (!user.wallet.escrow) user.wallet.escrow = new Map();
+            const current = user.wallet.escrow.get
+              ? user.wallet.escrow.get(cur) || 0
+              : user.wallet.escrow[cur] || 0;
+            if (user.wallet.escrow.set) {
+              user.wallet.escrow.set(cur, current + amt);
+            } else {
+              user.wallet.escrow[cur] = current + amt;
+            }
+            user.wallet.updatedAt = Date.now();
+            await user.save({ validateBeforeSave: false });
+          }
+        } catch (e) {
+          console.log('⚠️ Failed to update client wallet escrow:', e.message);
+        }
+
+        // Notify + email both parties (best-effort)
+        try {
+          const frontendUrl =
+            process.env.FRONTEND_URL ||
+            (process.env.NODE_ENV === 'production'
+              ? 'https://freshlancer.online'
+              : 'http://localhost:3000');
+
+          const refreshed = await Contract.findById(contractId);
+          const ms = refreshed?.milestones?.id ? refreshed.milestones.id(milestoneId) : null;
+          const milestoneTitle = ms?.plan?.title || 'Milestone';
+          const principal =
+            transaction.metadata?.get && transaction.metadata.get('principalAmount') !== undefined
+              ? Number(transaction.metadata.get('principalAmount'))
+              : Number(transaction.metadata?.principalAmount);
+          const amount = ms?.state?.amount || (Number.isFinite(principal) && principal > 0 ? principal : transaction.amount);
+
+          const Notification = require('../models/notificationModel');
+          if (refreshed?.client?._id && refreshed?.student?._id) {
+            await Notification.create([
+              {
+                user: refreshed.client._id,
+                type: 'milestone_funded',
+                title: 'Milestone Funded',
+                message: `Milestone "${milestoneTitle}" has been funded.`,
+                relatedId: refreshed._id,
+                relatedType: 'Contract',
+                actionUrl: `${frontendUrl}/client/contracts`,
+                icon: 'payment',
+              },
+              {
+                user: refreshed.student._id,
+                type: 'milestone_funded',
+                title: 'Milestone Funded',
+                message: `Client deposited escrow for "${milestoneTitle}". You can start working now, but you cannot withdraw until the client approves this milestone.`,
+                relatedId: refreshed._id,
+                relatedType: 'Contract',
+                actionUrl: `${frontendUrl}/student/contracts`,
+                icon: 'payment',
+              },
+            ]);
+          }
+
+          if (refreshed?.client?.email) {
+            sendEmail({
+              type: 'milestone-funded',
+              email: refreshed.client.email,
+              name: refreshed.client.name,
+              contractId: refreshed._id.toString(),
+              milestoneTitle,
+              amount,
+              currency: transaction.currency,
+              contractUrl: `${frontendUrl}/client/contracts`,
+              dashboardUrl: `${frontendUrl}/client/contracts`,
+            }).catch(() => {});
+          }
+          if (refreshed?.student?.email) {
+            sendEmail({
+              type: 'milestone-funded',
+              email: refreshed.student.email,
+              name: refreshed.student.name,
+              contractId: refreshed._id.toString(),
+              milestoneTitle,
+              amount,
+              currency: transaction.currency,
+              contractUrl: `${frontendUrl}/student/contracts`,
+              dashboardUrl: `${frontendUrl}/student/contracts`,
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.log('⚠️ Failed to notify milestone-funded:', e.message);
+        }
+
+        // Mark transaction processed
+        if (transaction.metadata?.set) {
+          transaction.metadata.set('escrowProcessed', true);
+        } else {
+          transaction.metadata = {
+            ...(transaction.metadata?.toObject ? transaction.metadata.toObject() : transaction.metadata),
+            escrowProcessed: true,
+          };
+        }
+        await transaction.save();
+      } else {
+        console.log('⚠️ Escrow deposit already processed or missing metadata');
+      }
+
+      console.log('=== END CONTRACT ESCROW DEPOSIT ===\n');
+    }
     // Handle granting payment
     else if (transaction.type === 'granting') {
       console.log('\n=== PROCESSING GRANTING PAYMENT ===');
@@ -761,6 +1046,12 @@ exports.completePaymentSuccess = catchAsync(async (req, res, next) => {
     } else if (paymentType === 'package' || transaction.type === 'package_purchase') {
       redirectUrl = `${process.env.FRONTEND_URL}/payment/success?type=package`;
       console.log('✅ Redirecting to package success page');
+    } else if (paymentType === 'contract_escrow_deposit' || transaction.type === 'escrow_deposit') {
+      const contractId = transaction.metadata?.get
+        ? transaction.metadata.get('contractId')
+        : transaction.metadata?.contractId;
+      redirectUrl = `${process.env.FRONTEND_URL}/client/contracts?payment=success${contractId ? `&contractId=${contractId}` : ''}`;
+      console.log('✅ Redirecting to contracts page after escrow deposit');
     } else {
       console.log('⚠️ Unknown payment type, using default success page');
     }

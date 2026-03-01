@@ -202,16 +202,7 @@ const userSchema = new mongoose.Schema({
       max: Number,
       currency: {
         type: String,
-        enum: [
-          // Major Currencies
-          'USD', 'EUR', 'EGP', 'GBP',
-          // Middle East
-          'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR', 'JOD', 'LBP', 'ILS', 'TRY',
-          // Africa
-          'ZAR', 'MAD', 'TND', 'DZD', 'NGN', 'KES', 'GHS', 'UGX', 'TZS', 'ETB',
-          // Europe
-          'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'HRK', 'RUB', 'UAH'
-        ],
+        enum: ['USD', 'EGP'],
         // No default - will be set based on country of study during registration
       },
     },
@@ -498,6 +489,23 @@ const userSchema = new mongoose.Schema({
         ref: 'User',
       },
     ],
+  },
+
+  // Money wallet (separate from points). Used for contracts escrow + payouts.
+  // `balances` is what the user can withdraw/use.
+  // `escrow` is held funds for active contracts (not withdrawable until released).
+  wallet: {
+    balances: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    escrow: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    updatedAt: Date,
   },
 
   // Platform metrics and activity

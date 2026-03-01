@@ -2,6 +2,7 @@ const JobPost = require('../models/jobPostModel');
 const JobApplication = require('../models/jobApplicationModel');
 const Category = require('../models/categoryModel');
 const AppError = require('../utils/AppError');
+const { validateCategorySpecValues } = require('../utils/categorySpecs');
 const catchAsync = require('../utils/catchAsync');
 const logger = require('../utils/logger');
 
@@ -16,13 +17,28 @@ exports.createJobPost = catchAsync(async (req, res, next) => {
   req.body.client = req.user.id;
 
   // Validate category exists and is active
+  let categoryDoc = null;
   if (req.body.category) {
-    const category = await Category.findOne({
+    categoryDoc = await Category.findOne({
       name: req.body.category,
       isActive: true,
     });
-    if (!category) {
+    if (!categoryDoc) {
       return next(new AppError('Invalid or inactive category', 400));
+    }
+  }
+
+  // Validate per-category spec requirements (if provided / required by category)
+  if (categoryDoc) {
+    try {
+      const cleaned = validateCategorySpecValues(
+        categoryDoc,
+        req.body.categorySpecRequirements,
+        'job'
+      );
+      req.body.categorySpecRequirements = cleaned;
+    } catch (err) {
+      return next(new AppError(err.message, 400));
     }
   }
 
@@ -344,16 +360,6 @@ exports.getJobPost = catchAsync(async (req, res, next) => {
 
 // Update a job post (only by the client who created it)
 exports.updateJobPost = catchAsync(async (req, res, next) => {
-  // Validate category if it's being updated
-  if (req.body.category) {
-    const category = await Category.findOne({
-      name: req.body.category,
-      isActive: true,
-    });
-    if (!category) {
-      return next(new AppError('Invalid or inactive category', 400));
-    }
-  }
   const jobPost = await JobPost.findById(req.params.id);
 
   if (!jobPost) {
@@ -365,9 +371,42 @@ exports.updateJobPost = catchAsync(async (req, res, next) => {
     return next(new AppError('You can only update your own job posts', 403));
   }
 
+  // Determine category for validation (new category if changing, else existing)
+  const effectiveCategoryName = req.body.category || jobPost.category;
+  let categoryDoc = null;
+  if (effectiveCategoryName) {
+    categoryDoc = await Category.findOne({
+      name: effectiveCategoryName,
+      isActive: true,
+    });
+    if (!categoryDoc) {
+      return next(new AppError('Invalid or inactive category', 400));
+    }
+  }
+
   // Prevent updating certain fields
   const restrictedFields = ['client', 'applicationsCount', 'createdAt'];
   restrictedFields.forEach((field) => delete req.body[field]);
+
+  // Validate per-category spec requirements if present; also enforce required specs.
+  // If the category changes, validate against the new category.
+  if (categoryDoc) {
+    try {
+      const incoming =
+        req.body.categorySpecRequirements !== undefined
+          ? req.body.categorySpecRequirements
+          : jobPost.categorySpecRequirements;
+
+      const cleaned = validateCategorySpecValues(categoryDoc, incoming, 'job');
+
+      // If request explicitly included the field (including empty), persist cleaned result.
+      if (req.body.categorySpecRequirements !== undefined || req.body.category) {
+        req.body.categorySpecRequirements = cleaned;
+      }
+    } catch (err) {
+      return next(new AppError(err.message, 400));
+    }
+  }
 
   // Remove deadline if it's empty or not provided
   if (!req.body.deadline || req.body.deadline === '' || req.body.deadline === null) {

@@ -38,6 +38,10 @@ const sendEmail = async (options) => {
       html: template.content,
     };
 
+    if (options.attachments && Array.isArray(options.attachments) && options.attachments.length > 0) {
+      mailOptions.attachments = options.attachments;
+    }
+
     // Send email
     const info = await transporter.sendMail(mailOptions);
 
