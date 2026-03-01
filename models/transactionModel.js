@@ -15,6 +15,7 @@ const transactionSchema = new mongoose.Schema({
         'package_purchase',
         'escrow_deposit',
         'escrow_release',
+        'escrow_refund',
         'payout',
         'refund',
         'platform_fee',
@@ -31,7 +32,7 @@ const transactionSchema = new mongoose.Schema({
   currency: {
     type: String,
     required: [true, 'Transaction must have a currency'],
-    enum: ['USD', 'EUR', 'GBP', 'EGP'],
+    enum: ['USD', 'EGP'],
     default: 'USD',
   },
   status: {
@@ -46,11 +47,11 @@ const transactionSchema = new mongoose.Schema({
   // Payment gateway details
   paymentGateway: {
     type: String,
-    enum: ['stripe', 'paypal', 'bank_transfer', 'manual', 'wallet'],
+    enum: ['stripe', 'paypal', 'bank_transfer', 'manual', 'wallet', 'instapay'],
   },
   paymentMethod: {
     type: String,
-    enum: ['credit_card', 'debit_card', 'paypal', 'bank_transfer', 'wallet'],
+    enum: ['credit_card', 'debit_card', 'paypal', 'bank_transfer', 'wallet', 'instapay'],
   },
   gatewayTransactionId: {
     type: String,

@@ -20,6 +20,7 @@ const notificationRouter = require('./routers/notificationRouter');
 const transactionRouter = require('./routers/transactionRouter');
 const adminRouter = require('./routers/adminRouter');
 const paymobRouter = require('./routers/paymobRouter');
+const paypalRouter = require('./routers/paypalRouter');
 const couponRouter = require('./routers/couponRouter');
 const startupRouter = require('./routers/startupRouter');
 const contactRouter = require('./routers/contactRouter');
@@ -28,6 +29,8 @@ const universityRouter = require('./routers/universityRouter');
 const grantingRouter = require('./routers/grantingRouter');
 const logRouter = require('./routers/logRouter');
 const moderatorRouter = require('./routers/moderatorRouter');
+const contractRouter = require('./routers/contractRouter');
+const appealRouter = require('./routers/appealRouter');
 const AppError = require('./utils/AppError');
 const globalErrorHandler = require('./controllers/errorController');
 
@@ -191,6 +194,7 @@ app.use('/api/v1/notifications', notificationRouter);
 app.use('/api/v1/transactions', transactionRouter);
 app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/paymob', paymobRouter);
+app.use('/api/v1/paypal', paypalRouter);
 app.use('/api/v1/coupons', couponRouter);
 app.use('/api/v1/startups', startupRouter);
 app.use('/api/v1/contacts', contactRouter);
@@ -199,6 +203,8 @@ app.use('/api/v1/universities', universityRouter);
 app.use('/api/v1/grantings', grantingRouter);
 app.use('/api/v1/logs', logRouter);
 app.use('/api/v1/moderator', moderatorRouter);
+app.use('/api/v1/contracts', contractRouter);
+app.use('/api/v1/appeals', appealRouter);
 
 //global middleware to handle unhandled routes
 app.all('*', (req, res, next) => {

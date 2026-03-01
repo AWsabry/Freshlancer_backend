@@ -38,16 +38,7 @@ const jobApplicationSchema = new mongoose.Schema({
     currency: {
       type: String,
       default: 'USD',
-      enum: [
-        // Major Currencies
-        'USD', 'EUR', 'EGP', 'GBP',
-        // Middle East
-        'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR', 'JOD', 'LBP', 'ILS', 'TRY',
-        // Africa
-        'ZAR', 'MAD', 'TND', 'DZD', 'NGN', 'KES', 'GHS', 'UGX', 'TZS', 'ETB',
-        // Europe
-        'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'HRK', 'RUB', 'UAH'
-      ],
+      enum: ['USD', 'EGP'],
     },
   },
   estimatedDuration: {
@@ -125,6 +116,13 @@ const jobApplicationSchema = new mongoose.Schema({
       'I have 5+ similar projects',
       'I am an expert in this field',
     ],
+  },
+  // Per-category custom answers submitted by the student.
+  // Keys correspond to Category.specs[].key
+  categorySpecAnswers: {
+    type: Map,
+    of: mongoose.Schema.Types.Mixed,
+    default: {},
   },
   portfolio: [
     {
@@ -327,7 +325,8 @@ jobApplicationSchema.post('findOneAndDelete', async (doc) => {
 jobApplicationSchema.pre(/^find/, function (next) {
   this.populate({
     path: 'jobPost',
-    select: 'title description budget deadline status client category location urgent skillsRequired duration createdAt',
+    select:
+      'title description budget deadline status client category location urgent skillsRequired duration createdAt categorySpecRequirements',
     populate: {
       path: 'client',
       select: 'name email photo clientProfile',

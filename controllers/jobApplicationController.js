@@ -1,11 +1,16 @@
 const JobApplication = require('../models/jobApplicationModel');
 const JobPost = require('../models/jobPostModel');
+const Category = require('../models/categoryModel');
 const User = require('../models/userModel');
 const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
 const sendEmail = require('../utils/email');
 const logger = require('../utils/logger');
 const { syncApplicationCount, incrementApplicationCount } = require('../utils/applicationCounter');
+const {
+  validateCategorySpecValues,
+  enforceCompatibilityWithJobRequirements,
+} = require('../utils/categorySpecs');
 
 // Helper function to normalize attachment URLs to full URLs
 const normalizeAttachmentUrls = (attachments, baseUrl) => {
@@ -123,6 +128,39 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
   // Validate jobPost has required fields
   if (!jobPost.client) {
     return next(new AppError('Job post client information is missing', 500));
+  }
+
+  // Validate category specs for application (if category has specs configured).
+  // NOTE: We do NOT require the category to be active here, since jobs may exist
+  // under deactivated categories and should still be apply-able.
+  const categoryDoc = jobPost.category
+    ? await Category.findOne({ name: jobPost.category })
+    : null;
+
+  if (categoryDoc) {
+    try {
+      // Validate student answers against category definitions
+      const cleanedAnswers = validateCategorySpecValues(
+        categoryDoc,
+        req.body.categorySpecAnswers,
+        'application'
+      );
+
+      // Enforce compatibility with job requirements for specs used in both flows
+      const finalAnswers = enforceCompatibilityWithJobRequirements(
+        categoryDoc,
+        jobPost.categorySpecRequirements,
+        cleanedAnswers
+      );
+
+      req.body.categorySpecAnswers = finalAnswers;
+    } catch (err) {
+      return next(new AppError(err.message, 400));
+    }
+  } else if (req.body.categorySpecAnswers !== undefined) {
+    // If the client sends spec answers but we can't resolve the category,
+    // reject to avoid storing unvalidated arbitrary data.
+    return next(new AppError('Job category specs are not available for validation', 400));
   }
 
   // Check if student has already applied (excluding withdrawn applications to allow re-application)
@@ -619,7 +657,7 @@ exports.getApplication = catchAsync(async (req, res, next) => {
   const application = await JobApplication.findById(req.params.id)
     .populate({
       path: 'jobPost',
-      select: 'title budget deadline status category description skillsRequired location client',
+      select: 'title budget deadline status category description skillsRequired location client projectDuration categorySpecRequirements',
       populate: {
         path: 'client',
         select: 'name email photo clientProfile',
@@ -1651,10 +1689,10 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   const studentsWithData = await User.find({
     _id: { $in: studentIds }
   })
-    .select('_id nationality studentProfile.university studentProfile.subscriptionTier')
+    .select('_id nationality studentProfile')
     .populate({
       path: 'studentProfile.university',
-      select: 'name status countryCode',
+      // Return all university fields (no select restriction)
     })
     .lean();
   
@@ -1666,11 +1704,58 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   
   const universityMap = new Map();
   const nationalityMap = new Map();
+  
+  // Collect all university IDs that need to be populated
+  const universityIds = new Set();
   studentsWithData.forEach(student => {
     const studentId = student._id.toString();
-    universityMap.set(studentId, student.studentProfile?.university || null);
     nationalityMap.set(studentId, student.nationality || null);
+    
+    // Check if university is an ObjectId (not populated) or a populated object
+    const universityRef = student.studentProfile?.university;
+    if (universityRef) {
+      // If it's already populated (has name property), use it directly
+      if (typeof universityRef === 'object' && universityRef !== null && universityRef.name && typeof universityRef.name === 'string') {
+        universityMap.set(studentId, universityRef);
+      } else {
+        // It's an ObjectId (could be string, ObjectId object, or object with _id), add to set for manual population
+        let uniId;
+        if (typeof universityRef === 'string') {
+          uniId = universityRef;
+        } else if (typeof universityRef === 'object' && universityRef !== null) {
+          uniId = universityRef._id ? universityRef._id.toString() : universityRef.toString();
+        } else {
+          uniId = universityRef.toString();
+        }
+        universityIds.add(uniId);
+        // Store the ID temporarily, we'll replace it after population
+        universityMap.set(studentId, { _id: uniId, needsPopulation: true });
+      }
+    } else {
+      universityMap.set(studentId, null);
+    }
   });
+  
+  // Manually populate universities if needed
+  if (universityIds.size > 0) {
+    const universities = await University.find({
+      _id: { $in: Array.from(universityIds) }
+    })
+      .lean(); // Return all university fields
+    
+    const universityById = new Map();
+    universities.forEach(uni => {
+      universityById.set(uni._id.toString(), uni);
+    });
+    
+    // Update the map with populated universities
+    universityMap.forEach((value, studentId) => {
+      if (value && value.needsPopulation) {
+        const populated = universityById.get(value._id.toString());
+        universityMap.set(studentId, populated || null);
+      }
+    });
+  }
 
   // Hide student data for applications that are not unlocked, but keep subscriptionTier and university
   applications = applications.map((app) => {
@@ -1678,8 +1763,13 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     // contactUnlockedByClient defaults to false, so check explicitly
     let subscriptionTier = app.student?.studentProfile?.subscriptionTier;
     const studentId = app.student?._id?.toString();
-    const university = universityMap.get(studentId) || app.student?.studentProfile?.university || null;
-    const nationality = nationalityMap.get(studentId) || app.student?.nationality || null;
+    // Always prefer university from the map (populated) over aggregation result (ObjectId)
+    const university = universityMap.has(studentId) 
+      ? universityMap.get(studentId) 
+      : (app.student?.studentProfile?.university || null);
+    const nationality = nationalityMap.has(studentId)
+      ? nationalityMap.get(studentId)
+      : (app.student?.nationality || null);
     
     // Fallback: If subscriptionTier is missing, check Subscription model
     if (!subscriptionTier && studentId) {
@@ -1713,8 +1803,12 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
           if (!app.student.studentProfile.subscriptionTier && subscriptionTier) {
             app.student.studentProfile.subscriptionTier = subscriptionTier;
           }
-          // Ensure university is set (use fetched value if missing)
-          if (!app.student.studentProfile.university && university) {
+          // Always use the populated university from the map when available (replaces ObjectId with populated object)
+          // If studentId is in the map, use that value (even if null - means student has no university)
+          if (studentId && universityMap.has(studentId)) {
+            app.student.studentProfile.university = university;
+          } else if (university) {
+            // Fallback: if not in map but we have a university value, use it
             app.student.studentProfile.university = university;
           }
           // Remove sensitive fields but keep the rest of studentProfile
@@ -1726,7 +1820,7 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
           // If studentProfile doesn't exist, create it with subscriptionTier and university
           app.student.studentProfile = {
             ...(subscriptionTier ? { subscriptionTier } : {}),
-            ...(university ? { university } : {})
+            ...(universityMap.has(studentId) ? { university } : {})
           };
         }
       }

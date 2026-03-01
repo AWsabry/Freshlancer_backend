@@ -8,25 +8,23 @@ const handleCastErrorDB = (err) => {
 };
 
 const handleDuplicateFieldsDB = (err) => {
-  // Extract field name from error
-  let field = 'This information';
+  const keys = err.keyValue ? Object.keys(err.keyValue) : [];
+  const fieldName = keys[0] || 'This information';
   let message = 'This information is already registered. Please use a different one.';
 
-  if (err.keyValue) {
-    const keys = Object.keys(err.keyValue);
-    if (keys.length > 0) {
-      const fieldName = keys[0];
-      if (fieldName === 'email') {
-        message = 'This email address is already registered. Please use a different email or try logging in.';
-      } else if (fieldName === 'name') {
-        message = 'This name is already taken. Please use a different name.';
-      } else {
-        message = `This ${fieldName} is already registered. Please use a different one.`;
-      }
+  if (keys.length > 0) {
+    if (fieldName === 'email') {
+      message = 'This email address is already registered. Please use a different email or try logging in.';
+    } else if (fieldName === 'name') {
+      message = 'This name is already taken. Please use a different name.';
+    } else if (fieldName === 'jobApplication') {
+      message = 'A contract already exists for this application.';
+    } else {
+      message = `This ${fieldName} is already registered. Please use a different one.`;
     }
   }
 
-  return AppError.badRequest(message, 'DUPLICATE_FIELD', { field: keys[0] });
+  return AppError.badRequest(message, 'DUPLICATE_FIELD', { field: fieldName });
 };
 
 const handleValidationErrorDB = (err) => {

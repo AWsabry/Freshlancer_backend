@@ -7,6 +7,9 @@ const Transaction = require('../models/transactionModel');
 const Notification = require('../models/notificationModel');
 const ProfileView = require('../models/profileViewModel');
 const StudentVerification = require('../models/studentVerificationModel');
+const { Contract } = require('../models/contractModel');
+const Withdrawal = require('../models/withdrawalModel');
+const PlatformSettings = require('../models/platformSettingsModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 
@@ -886,5 +889,249 @@ exports.deletePackage = catchAsync(async (req, res, next) => {
     status: 'success',
     message: 'Package deleted successfully',
     data: null,
+  });
+});
+
+// Get all contracts (admin view)
+exports.getAllContracts = catchAsync(async (req, res, next) => {
+  const { status, page = 1, limit = 50, clientId, studentId, startDate, endDate } = req.query;
+
+  const query = {};
+  if (status) {
+    query.status = status;
+  }
+  if (clientId) {
+    query.client = clientId;
+  }
+  if (studentId) {
+    query.student = studentId;
+  }
+
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) {
+      query.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      query.createdAt.$lte = endDateTime;
+    }
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [contracts, totalCount] = await Promise.all([
+    Contract.find(query)
+      .populate({
+        path: 'client',
+        select: 'name email phone',
+      })
+      .populate({
+        path: 'student',
+        select: 'name email phone',
+      })
+      .populate({
+        path: 'jobPost',
+        select: 'title category',
+      })
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(parseInt(limit)),
+    Contract.countDocuments(query),
+  ]);
+
+  res.status(200).json({
+    status: 'success',
+    results: contracts.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: parseInt(page),
+    data: {
+      contracts,
+    },
+  });
+});
+
+// Get all withdrawals (admin view)
+exports.getAllWithdrawals = catchAsync(async (req, res, next) => {
+  const { status, page = 1, limit = 50, userId, paymentMethod, startDate, endDate } = req.query;
+
+  const query = {};
+  if (status) {
+    query.status = status;
+  }
+  if (userId) {
+    query.user = userId;
+  }
+  if (paymentMethod) {
+    query.paymentMethod = paymentMethod;
+  }
+
+  if (startDate || endDate) {
+    query.requestedAt = {};
+    if (startDate) {
+      query.requestedAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      const endDateTime = new Date(endDate);
+      endDateTime.setHours(23, 59, 59, 999);
+      query.requestedAt.$lte = endDateTime;
+    }
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [withdrawals, totalCount] = await Promise.all([
+    Withdrawal.find(query)
+      .populate({
+        path: 'user',
+        select: 'name email phone role',
+      })
+      .populate({
+        path: 'transaction',
+        select: 'amount currency status invoiceNumber',
+      })
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(parseInt(limit)),
+    Withdrawal.countDocuments(query),
+  ]);
+
+  res.status(200).json({
+    status: 'success',
+    results: withdrawals.length,
+    totalCount,
+    totalPages: Math.ceil(totalCount / limit),
+    currentPage: parseInt(page),
+    data: {
+      withdrawals,
+    },
+  });
+});
+
+// Platform fee settings (single doc)
+exports.getPlatformSettings = catchAsync(async (req, res, next) => {
+  let settings = await PlatformSettings.findById(PlatformSettings.PLATFORM_SETTINGS_ID).lean();
+  if (!settings) {
+    settings = await PlatformSettings.create({
+      _id: PlatformSettings.PLATFORM_SETTINGS_ID,
+      platformFeeRate: 0.1,
+      transactionFeeRate: 0.03,
+    });
+    settings = settings.toObject ? settings.toObject() : settings;
+  }
+  res.status(200).json({
+    status: 'success',
+    data: {
+      platformFeeRate: settings.platformFeeRate ?? 0.1,
+      transactionFeeRate: settings.transactionFeeRate ?? 0.03,
+    },
+  });
+});
+
+exports.updatePlatformSettings = catchAsync(async (req, res, next) => {
+  const raw = req.body || {};
+  const platformFeeRate = Number(raw.platformFeeRate);
+  const transactionFeeRate = Number(raw.transactionFeeRate);
+  const updates = {};
+  if (Number.isFinite(platformFeeRate) && platformFeeRate >= 0 && platformFeeRate <= 1) {
+    updates.platformFeeRate = platformFeeRate;
+  }
+  if (Number.isFinite(transactionFeeRate) && transactionFeeRate >= 0 && transactionFeeRate <= 1) {
+    updates.transactionFeeRate = transactionFeeRate;
+  }
+  const settings = await PlatformSettings.findByIdAndUpdate(
+    PlatformSettings.PLATFORM_SETTINGS_ID,
+    { $set: updates },
+    { upsert: true, new: true, runValidators: true }
+  ).lean();
+  res.status(200).json({
+    status: 'success',
+    data: {
+      platformFeeRate: settings.platformFeeRate ?? 0.1,
+      transactionFeeRate: settings.transactionFeeRate ?? 0.03,
+    },
+  });
+});
+
+// Business income: client packages, student subscriptions, escrow fees (platform + transaction). All completed tx, by currency.
+function buildDateFilter(startDate, endDate) {
+  const filter = {};
+  if (startDate || endDate) {
+    filter.createdAt = {};
+    if (startDate) filter.createdAt.$gte = new Date(startDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      filter.createdAt.$lte = end;
+    }
+  }
+  return filter;
+}
+
+function roundMoney(val) {
+  return Math.round((Number(val) || 0) * 100) / 100;
+}
+
+exports.getPlatformIncome = catchAsync(async (req, res, next) => {
+  const { startDate, endDate } = req.query;
+  const dateFilter = buildDateFilter(startDate, endDate);
+
+  const baseMatch = { status: 'completed', ...dateFilter };
+
+  const [clientPackagesAgg, studentSubsAgg, escrowFeesAgg] = await Promise.all([
+    Transaction.aggregate([
+      { $match: { ...baseMatch, type: 'package_purchase' } },
+      { $group: { _id: '$currency', total: { $sum: '$amount' } } },
+    ]),
+    Transaction.aggregate([
+      { $match: { ...baseMatch, type: 'subscription_payment' } },
+      { $group: { _id: '$currency', total: { $sum: '$amount' } } },
+    ]),
+    Transaction.aggregate([
+      { $match: { ...baseMatch, type: 'escrow_deposit' } },
+      {
+        $project: {
+          currency: 1,
+          platformFee: { $ifNull: ['$metadata.platformFee', 0] },
+          transactionFee: { $ifNull: ['$metadata.transactionFee', 0] },
+        },
+      },
+      {
+        $project: {
+          currency: 1,
+          total: { $add: ['$platformFee', '$transactionFee'] },
+        },
+      },
+      { $group: { _id: '$currency', total: { $sum: '$total' } } },
+    ]),
+  ]);
+
+  const toMap = (agg) => {
+    const m = { USD: 0, EGP: 0 };
+    agg.forEach(({ _id, total }) => {
+      if (_id === 'USD' || _id === 'EGP') m[_id] = roundMoney(total);
+    });
+    return m;
+  };
+
+  const clientPackages = toMap(clientPackagesAgg);
+  const studentSubscriptions = toMap(studentSubsAgg);
+  const escrowFees = toMap(escrowFeesAgg);
+
+  const totalUSD = roundMoney(clientPackages.USD + studentSubscriptions.USD + escrowFees.USD);
+  const totalEGP = roundMoney(clientPackages.EGP + studentSubscriptions.EGP + escrowFees.EGP);
+
+  res.status(200).json({
+    status: 'success',
+    data: {
+      clientPackages,
+      studentSubscriptions,
+      escrowFees,
+      totalUSD,
+      totalEGP,
+      byCurrency: { USD: totalUSD, EGP: totalEGP },
+    },
   });
 });

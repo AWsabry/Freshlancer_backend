@@ -1,9 +1,11 @@
+const path = require('path');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
 // const preventSleep = require('./preventSleep');
 
-dotenv.config({ path: './config.env' });
+// Load config from same directory as server.js (works regardless of process cwd / PM2)
+dotenv.config({ path: path.join(__dirname, 'config.env') });
 
 //listen to uncaught exceptions
 //uncaught exceptions are exceptions that are not handled by express
@@ -15,8 +17,18 @@ process.on('uncaughtException', (err) => {
 
 const app = require('./app');
 
+// Connect to MongoDB
+// Note: If your DATABASE connection string contains query parameters like w=majority, wtimeout, j, fsync,
+// these should be removed from the URL and handled by mongoose options if needed.
+// The useUnifiedTopology option addresses the Server Discovery deprecation warning.
 mongoose
-  .connect(process.env.DATABASE)
+  .connect(process.env.DATABASE, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    useFindAndModify: false,
+    // Write concern is handled automatically by mongoose
+    // If you need custom write concern, use: writeConcern: { w: 'majority', wtimeout: 5000 }
+  })
   .then(() => {
     console.log('DB connected successfully');
     
@@ -35,6 +47,10 @@ const server = app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
   // preventSleep.preventSleep();
 });
+
+// Initialize WebSocket server
+const { initializeWebSocket } = require('./websocket');
+initializeWebSocket(server);
 
 //listen to unhandled promise rejection
 //this will not catch error in synchronous code
