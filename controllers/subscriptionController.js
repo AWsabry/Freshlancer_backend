@@ -130,7 +130,7 @@ exports.upgradeToPremium = catchAsync(async (req, res, next) => {
     return next(new AppError('You already have a premium subscription', 400));
   }
 
-  // Get currency and billing cycle from request
+  // Get currency and billing cycle from request (EGP only)
   const currency = req.body.currency || 'EGP';
   const billingCycle = req.body.billingCycle || 'monthly';
   const couponCode = req.body.couponCode; // Get coupon code from request
@@ -139,10 +139,10 @@ exports.upgradeToPremium = catchAsync(async (req, res, next) => {
   console.log('Billing Cycle:', billingCycle);
   console.log('Coupon Code:', couponCode || 'None');
 
-  // Validate currency
-  const supportedCurrencies = ['USD', 'EGP'];
+  // Validate currency (EGP only for subscriptions)
+  const supportedCurrencies = ['EGP'];
   if (!supportedCurrencies.includes(currency)) {
-    return next(new AppError(`Currency ${currency} is not supported`, 400));
+    return next(new AppError(`Currency ${currency} is not supported. Only EGP is allowed for subscriptions.`, 400));
   }
 
   // Get original price for the selected currency
@@ -730,7 +730,7 @@ exports.getSubscriptionStats = catchAsync(async (req, res, next) => {
 exports.getSubscriptionPricing = catchAsync(async (req, res, next) => {
   // Get user's currency from their location or use provided currency
   const requestedCurrency = req.query.currency;
-  let userCurrency = 'USD'; // Default
+  let userCurrency = 'EGP'; // Default to EGP
 
   // If user is logged in (optional), try to get currency from their profile
   // Country is stored in user.country, NOT in location.country
@@ -746,7 +746,7 @@ exports.getSubscriptionPricing = catchAsync(async (req, res, next) => {
     }
   }
 
-  // Override with requested currency if provided
+  // Override with requested currency if provided (but currently only EGP is used on the frontend)
   const currency = requestedCurrency || userCurrency;
 
   // Get prices for all billing cycles
