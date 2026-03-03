@@ -36,7 +36,7 @@ const jobPostSchema = new mongoose.Schema({
     },
     currency: {
       type: String,
-      default: 'USD',
+      default: 'EGP',
       enum: ['USD', 'EGP'],
     },
   },
