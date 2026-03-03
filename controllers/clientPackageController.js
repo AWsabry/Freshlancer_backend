@@ -57,7 +57,7 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
     return next(new AppError('Only clients can purchase packages', 403));
   }
 
-  const { packageType, packageId, paymentMethod, currency = 'USD', amount, couponCode } = req.body;
+  const { packageType, packageId, paymentMethod, currency = 'EGP', amount, couponCode } = req.body;
 
   // Fetch package from database - prefer packageId if provided, otherwise use packageType
   let packageDoc;
@@ -71,6 +71,11 @@ exports.purchasePackage = catchAsync(async (req, res, next) => {
 
   if (!packageDoc) {
     return next(new AppError('Package not found or inactive', 404));
+  }
+
+  // Validate currency (EGP only for client packages)
+  if (currency !== 'EGP') {
+    return next(new AppError(`Currency ${currency} is not supported. Only EGP is allowed for packages.`, 400));
   }
 
   // Use package document as config
