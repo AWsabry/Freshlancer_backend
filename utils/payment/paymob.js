@@ -27,17 +27,34 @@ class PaymobService {
         billingData,
         customer,
         integrationId = null,
+        useWallet = false,
+        useCard = true,
       } = paymentData;
 
-      // Build payment methods array with static integration ID
-      const paymentMethods = [
-        5404367, // Static integration ID as provided
-        'card',
-      ];
+      // Build payment methods array from env / overrides
+      const paymentMethods = [];
 
-      // If custom integration ID provided, add it
-      if (integrationId) {
-        paymentMethods.push(integrationId);
+      const cardIntegrationId =
+        integrationId ||
+        Number(process.env.PAYMOB_CARD_INTEGRATION_ID || 0);
+      const walletIntegrationId = Number(
+        process.env.PAYMOB_WALLET_INTEGRATION_ID || 0
+      );
+
+      if (useCard && cardIntegrationId) {
+        paymentMethods.push(cardIntegrationId);
+      }
+
+      if (useWallet && walletIntegrationId) {
+        paymentMethods.push(walletIntegrationId);
+      }
+
+      if (paymentMethods.length === 0) {
+        throw new AppError(
+          'No valid Paymob integration IDs configured',
+          500,
+          'PAYMOB_INTEGRATION_MISCONFIGURED'
+        );
       }
 
       const requestBody = {

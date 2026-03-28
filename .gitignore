@@ -73,6 +73,8 @@ typings/
 # dotenv environment variables file
 .env
 .env.test
+.config.env
+# Local secrets — never commit (copy from config.env.example)
 config.env
 
 # parcel-bundler cache (https://parceljs.org/)

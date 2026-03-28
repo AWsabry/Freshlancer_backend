@@ -210,7 +210,7 @@ exports.createGranting = catchAsync(async (req, res, next) => {
         // Construct payment URL if clientSecret is available but paymentUrl is not
         let paymentUrl = paymentIntention.paymentUrl;
         if (!paymentUrl && paymentIntention.clientSecret) {
-          const publicKey = process.env.PAYMOB_PUBLIC_KEY || 'egy_pk_test_xgfkuiZo2us0viNDmSCVU1OvNnJQOUwv';
+          const publicKey = process.env.PAYMOB_PUBLIC_KEY;
           paymentUrl = `https://accept.paymob.com/unifiedcheckout/?publicKey=${publicKey}&clientSecret=${paymentIntention.clientSecret}`;
         }
 
