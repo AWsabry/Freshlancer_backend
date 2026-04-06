@@ -1,6 +1,5 @@
 const httpClient = require('../httpClient');
 const { withRetry } = require('../networkErrorHandler');
-const AppError = require('../AppError');
 const logger = require('../logger');
 
 const PAYMOB_BASE_URL = 'https://accept.paymob.com/v1';
@@ -11,6 +10,23 @@ class PaymobService {
     if (!this.apiKey) {
       logger.error('PAYMOB_TOKEN is not set in environment variables');
     }
+  }
+
+  getDefaultIntegrationIds() {
+    const card = process.env.PAYMOB_INTEGRATION_ID_CARD
+      ? Number(process.env.PAYMOB_INTEGRATION_ID_CARD)
+      : null;
+    const wallet = process.env.PAYMOB_INTEGRATION_ID_WALLET
+      ? Number(process.env.PAYMOB_INTEGRATION_ID_WALLET)
+      : null;
+
+    const ids = [card, wallet].filter((v) => Number.isFinite(v) && v > 0);
+    if (!ids.length) {
+      logger.warn(
+        'PAYMOB_INTEGRATION_ID_CARD / PAYMOB_INTEGRATION_ID_WALLET are not set; Paymob intentions may fail depending on your account config'
+      );
+    }
+    return ids;
   }
 
   /**
@@ -29,46 +45,46 @@ class PaymobService {
         integrationId = null,
       } = paymentData;
 
-      // Build payment methods array with static integration ID
-      const paymentMethods = [
-        5404367, // Static integration ID as provided
-        'card',
-      ];
+      const paymentMethods = this.getDefaultIntegrationIds();
+      if (integrationId) paymentMethods.push(integrationId);
 
-      // If custom integration ID provided, add it
-      if (integrationId) {
-        paymentMethods.push(integrationId);
-      }
+      const safeBillingData = billingData || {};
+      const safeCustomer = customer || {};
 
       const requestBody = {
         amount: Math.round(amount * 100), // Paymob expects amount in cents
         currency,
         payment_methods: paymentMethods,
-        items: items.map(item => ({
+        items: items.map((item) => ({
           name: item.name,
           amount: Math.round(item.amount * 100),
           description: item.description || '',
           quantity: item.quantity || 1,
         })),
         billing_data: {
-          apartment: billingData?.apartment || 'NA',
-          first_name: billingData?.firstName || customer?.firstName || 'Guest',
-          last_name: billingData?.lastName || customer?.lastName || 'User',
-          street: billingData?.street || 'NA',
-          building: billingData?.building || 'NA',
-          phone_number: billingData?.phoneNumber || customer?.phone || '+201000000000',
-          country: billingData?.country || 'EGY',
-          email: billingData?.email || customer?.email,
-          floor: billingData?.floor || 'NA',
-          state: billingData?.state || 'NA',
+          apartment: safeBillingData.apartment || 'NA',
+          first_name:
+            safeBillingData.firstName || safeCustomer.firstName || 'Guest',
+          last_name:
+            safeBillingData.lastName || safeCustomer.lastName || 'User',
+          street: safeBillingData.street || 'NA',
+          building: safeBillingData.building || 'NA',
+          phone_number:
+            safeBillingData.phoneNumber ||
+            safeCustomer.phone ||
+            '+201000000000',
+          country: safeBillingData.country || 'EGY',
+          email: safeBillingData.email || safeCustomer.email,
+          floor: safeBillingData.floor || 'NA',
+          state: safeBillingData.state || 'NA',
         },
         customer: {
-          first_name: customer?.firstName || 'Guest',
-          last_name: customer?.lastName || 'User',
-          email: customer?.email,
-          extras: customer?.extras || {},
+          first_name: safeCustomer.firstName || 'Guest',
+          last_name: safeCustomer.lastName || 'User',
+          email: safeCustomer.email,
+          extras: safeCustomer.extras || {},
         },
-        extras: paymentData.extras || {},
+        extras: (paymentData && paymentData.extras) || {},
       };
 
       logger.debug('Creating Paymob payment intention:', {
@@ -79,22 +95,17 @@ class PaymobService {
 
       // Use retry wrapper for network operations
       const response = await withRetry(
-        async () => {
-          return await httpClient.post(
-            `${PAYMOB_BASE_URL}/intention/`,
-            requestBody,
-            {
-              headers: {
-                'Authorization': `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/json',
-              },
-            }
-          );
-        },
+        async () =>
+          httpClient.post(`${PAYMOB_BASE_URL}/intention/`, requestBody, {
+            headers: {
+              Authorization: `Bearer ${this.apiKey}`,
+              'Content-Type': 'application/json',
+            },
+          }),
         {
           maxRetries: 3,
           retryDelay: 1000,
-          context: 'Paymob Payment Intention'
+          context: 'Paymob Payment Intention',
         }
       );
 
@@ -135,20 +146,16 @@ class PaymobService {
 
     try {
       const response = await withRetry(
-        async () => {
-          return await httpClient.get(
-            `${PAYMOB_BASE_URL}/intention/${intentionId}`,
-            {
-              headers: {
-                'Authorization': `Bearer ${this.apiKey}`,
-              },
-            }
-          );
-        },
+        async () =>
+          httpClient.get(`${PAYMOB_BASE_URL}/intention/${intentionId}`, {
+            headers: {
+              Authorization: `Bearer ${this.apiKey}`,
+            },
+          }),
         {
           maxRetries: 2,
           retryDelay: 1000,
-          context: 'Paymob Payment Verification'
+          context: 'Paymob Payment Verification',
         }
       );
 
@@ -182,20 +189,23 @@ class PaymobService {
   processWebhook(webhookData) {
     // Paymob sends webhook in this format: { type: "TRANSACTION", obj: {...} }
     const transaction = webhookData.obj || webhookData;
+    const order = transaction && transaction.order ? transaction.order : null;
+    const source =
+      transaction && transaction.source_data ? transaction.source_data : null;
 
     return {
-      intentionId: transaction.order?.id || webhookData.id,
+      intentionId: (order && order.id) || (webhookData && webhookData.id),
       transactionId: transaction.id,
       status: transaction.success ? 'PROCESSED' : 'FAILED',
       isPaid: transaction.success === true && transaction.pending === false,
       amount: transaction.amount_cents / 100, // Convert from cents
       currency: transaction.currency,
-      orderId: transaction.order?.id || null,
+      orderId: (order && order.id) || null,
       isRefunded: transaction.is_refunded || false,
       isVoided: transaction.is_voided || false,
-      paymentMethod: transaction.source_data?.type || 'unknown',
-      cardType: transaction.source_data?.sub_type || null,
-      cardLastFour: transaction.source_data?.pan || null,
+      paymentMethod: (source && source.type) || 'unknown',
+      cardType: (source && source.sub_type) || null,
+      cardLastFour: (source && source.pan) || null,
     };
   }
 }
