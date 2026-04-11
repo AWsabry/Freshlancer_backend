@@ -155,35 +155,18 @@ module.exports = {
       const key = def.key;
       if (!(key in requirements)) continue;
       const reqValRaw = requirements[key];
+      if (isEmptyValue(reqValRaw)) continue;
+      if (def.type !== 'number') continue;
 
-      // If job specifies a requirement, auto-fill missing answer (locks in UI).
-      if (isEmptyValue(answers[key])) {
-        answers[key] = reqValRaw;
-      }
+      // Choice specs (select, boolean, multi_select) are validated only against
+      // category options in validateCategorySpecValues — not against the job.
+
+      if (isEmptyValue(answers[key])) continue;
 
       const reqVal = coerceAndValidateSpecValue(def, reqValRaw);
       const ansVal = coerceAndValidateSpecValue(def, answers[key]);
-
-      if (def.type === 'select' || def.type === 'boolean') {
-        if (ansVal !== reqVal) {
-          throw new Error(`Spec "${key}" must match the job requirement`);
-        }
-      } else if (def.type === 'number') {
-        // Treat job requirement as max value
-        if (ansVal > reqVal) {
-          throw new Error(`Spec "${key}" must be <= ${reqVal}`);
-        }
-      } else if (def.type === 'multi_select') {
-        const reqArr = Array.isArray(reqVal) ? reqVal : [];
-        const ansArr = Array.isArray(ansVal) ? ansVal : [];
-        const reqSet = new Set(reqArr);
-        for (const v of ansArr) {
-          if (!reqSet.has(v)) {
-            throw new Error(
-              `Spec "${key}" must be a subset of the job requirement options`
-            );
-          }
-        }
+      if (ansVal > reqVal) {
+        throw new Error(`Spec "${key}" must be <= ${reqVal}`);
       }
     }
 
