@@ -20,13 +20,7 @@ const app = require('./app');
 // these should be removed from the URL and handled by mongoose options if needed.
 // The useUnifiedTopology option addresses the Server Discovery deprecation warning.
 mongoose
-  .connect(process.env.DATABASE, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    useFindAndModify: false,
-    // Write concern is handled automatically by mongoose
-    // If you need custom write concern, use: writeConcern: { w: 'majority', wtimeout: 5000 }
-  })
+  .connect(process.env.DATABASE,)
   .then(() => {
     console.log('DB connected successfully');
     
