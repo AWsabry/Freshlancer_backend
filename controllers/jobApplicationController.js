@@ -7,10 +7,12 @@ const catchAsync = require('../utils/catchAsync');
 const sendEmail = require('../utils/email');
 const logger = require('../utils/logger');
 const { syncApplicationCount, incrementApplicationCount } = require('../utils/applicationCounter');
+const { getFrontendUrl } = require('../utils/helpers');
 const {
   validateCategorySpecValues,
   enforceCompatibilityWithJobRequirements,
 } = require('../utils/categorySpecs');
+const { computeApplicationMatchScore } = require('../utils/matchScore');
 
 // Helper function to normalize attachment URLs to full URLs
 const normalizeAttachmentUrls = (attachments, baseUrl) => {
@@ -366,6 +368,7 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
       const isPremium = subscription && subscription.status === 'active' && subscription.plan === 'premium';
       const studentLabel = isPremium ? 'premium student' : 'student';
       
+      const frontendUrl = getFrontendUrl().replace(/\/$/, '');
       await sendEmail({
         type: 'job-application',
         email: jobPost.client.email,
@@ -374,9 +377,7 @@ exports.applyForJob = catchAsync(async (req, res, next) => {
         message: `You have received a new application for your job post "${jobPost.title}" from a ${studentLabel}.`,
         jobTitle: jobPost.title,
         studentName: studentLabel,
-        applicationUrl: `${req.protocol}://${req.get('host')}/applications/${
-          application._id
-        }`,
+        applicationUrl: `${frontendUrl}/client/jobs/${jobPost._id}/applications`,
       });
     } catch (err) {
       // Log error but don't fail the application submission
@@ -551,12 +552,14 @@ exports.getMyApplications = catchAsync(async (req, res, next) => {
             
             // If student is locked, preserve university, nationality, and subscriptionTier
             if (!appObj.contactUnlockedByClient) {
+              const externalProfiles = appObj.student?.studentProfile?.externalProfiles;
               appObj.student = {
                 ...appObj.student,
                 ...(nationality ? { nationality } : {}),
                 studentProfile: {
                   ...(subscriptionTier ? { subscriptionTier } : {}),
-                  ...(university ? { university } : {})
+                  ...(university ? { university } : {}),
+                  ...(externalProfiles ? { externalProfiles } : {})
                 }
               };
             } else {
@@ -715,6 +718,18 @@ exports.getApplication = catchAsync(async (req, res, next) => {
     appObj.attachments = normalizeAttachmentUrls(appObj.attachments, baseUrl);
   }
 
+  // Compute match score (0–10). Derived field only (safe for locked applicants).
+  try {
+    const { score } = computeApplicationMatchScore({
+      jobPost: appObj.jobPost,
+      application: appObj,
+      student: appObj.student,
+    });
+    appObj.matchScore = score;
+  } catch (e) {
+    appObj.matchScore = 0;
+  }
+
   // For clients, hide student data if not unlocked
   if (req.user.role === 'client') {
     
@@ -777,12 +792,14 @@ exports.getApplication = catchAsync(async (req, res, next) => {
     // Check if student contact is unlocked
     if (!appObj.contactUnlockedByClient) {
       // Student is locked - hide sensitive student data but keep university, nationality, and subscriptionTier
+      const externalProfiles = appObj.student?.studentProfile?.externalProfiles;
       appObj.student = {
         message: 'Student is Locked',
         ...(nationality ? { nationality } : {}),
         studentProfile: {
           ...(subscriptionTier ? { subscriptionTier } : {}),
-          ...(university ? { university } : {})
+          ...(university ? { university } : {}),
+          ...(externalProfiles ? { externalProfiles } : {})
         }
       };
     } else {
@@ -1704,11 +1721,13 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
   
   const universityMap = new Map();
   const nationalityMap = new Map();
+  const studentById = new Map();
   
   // Collect all university IDs that need to be populated
   const universityIds = new Set();
   studentsWithData.forEach(student => {
     const studentId = student._id.toString();
+    studentById.set(studentId, student);
     nationalityMap.set(studentId, student.nationality || null);
     
     // Check if university is an ObjectId (not populated) or a populated object
@@ -1757,6 +1776,22 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     });
   }
 
+  // Attach match score (0–10) for each application (safe derived field)
+  applications = applications.map((app) => {
+    try {
+      const studentId = app.student?._id?.toString();
+      const studentFull = studentId ? studentById.get(studentId) : null;
+      const { score } = computeApplicationMatchScore({
+        jobPost,
+        application: app,
+        student: studentFull,
+      });
+      return { ...app, matchScore: score };
+    } catch (e) {
+      return { ...app, matchScore: 0 };
+    }
+  });
+
   // Hide student data for applications that are not unlocked, but keep subscriptionTier and university
   applications = applications.map((app) => {
     // Check if student contact is unlocked
@@ -1782,12 +1817,14 @@ exports.getJobApplications = catchAsync(async (req, res, next) => {
     
     if (!app.contactUnlockedByClient || app.contactUnlockedByClient === false) {
       // Student is locked - hide all student data but keep subscriptionTier, university, and nationality
+      const externalProfiles = app.student?.studentProfile?.externalProfiles;
       app.student = {
         message: 'Student is Locked',
         ...(nationality ? { nationality } : {}),
         studentProfile: {
           ...(subscriptionTier ? { subscriptionTier } : {}),
-          ...(university ? { university } : {})
+          ...(university ? { university } : {}),
+          ...(externalProfiles ? { externalProfiles } : {})
         }
       };
     } else {

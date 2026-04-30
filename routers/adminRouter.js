@@ -6,8 +6,10 @@ const analyticsController = require('../controllers/analyticsController');
 const logController = require('../controllers/logController');
 const universityController = require('../controllers/universityController');
 const { uploadWithdrawalEvidence } = require('../middleware/upload');
+const { uploadAdminEmail } = require('../middleware/emailUpload');
 const { uploadWithErrorHandling } = require('../middleware/uploadErrorHandler');
 const withdrawalController = require('../controllers/withdrawalController');
+const adminEmailController = require('../controllers/adminEmailController');
 
 // Protect all routes and restrict to admin only
 router.use(authController.protect);
@@ -64,6 +66,20 @@ router.patch(
   uploadWithErrorHandling(uploadWithdrawalEvidence.single('paymentEvidence')),
   withdrawalController.updateWithdrawalStatus
 );
+
+// Admin email center (preview + send)
+router.post(
+  '/emails/preview',
+  uploadWithErrorHandling(uploadAdminEmail),
+  adminEmailController.previewAdminEmail
+);
+router.post(
+  '/emails/send',
+  uploadWithErrorHandling(uploadAdminEmail),
+  adminEmailController.sendAdminEmail
+);
+router.get('/emails', adminEmailController.getAdminEmailCampaigns);
+router.get('/emails/:id', adminEmailController.getAdminEmailCampaign);
 
 // Appeals overview
 router.get('/appeals', require('../controllers/appealController').getAllAppeals);

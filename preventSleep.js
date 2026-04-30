@@ -1,7 +1,7 @@
-const axios = require('axios'); // to make http request
-const dotenv = require('dotenv'); // to use environment variable
+const path = require('path');
+const axios = require('axios');
 
-dotenv.config({ path: './config.env' }); // configuration of the environment file
+require(path.join(__dirname, 'utils', 'loadEnv')).loadEnv();
 const hostUrl = process.env.HOST_URL;
 const wakeUpPeriod = process.env.WAKE_UP_PERIOD; // in minutes
 exports.preventSleep = () => {

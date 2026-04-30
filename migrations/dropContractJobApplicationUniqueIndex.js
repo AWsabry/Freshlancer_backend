@@ -1,7 +1,7 @@
+const path = require('path');
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
 
-dotenv.config({ path: './config.env' });
+require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
 
 /**
  * Migration: Drop unique index on jobApplication in contracts collection.

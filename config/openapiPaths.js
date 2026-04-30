@@ -288,6 +288,57 @@
  */
 /**
  * @openapi
+ * /api/v1/external-profiles/sync:
+ *   post:
+ *     tags: [ExternalProfiles]
+ *     summary: Sync all connected external profiles (student)
+ *     security: [ { bearerAuth: [] } ]
+ *     parameters:
+ *       - in: query
+ *         name: force
+ *         schema: { type: boolean, default: false }
+ *         description: Force refresh even if cached within TTL
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               force: { type: boolean, default: false }
+ *     responses:
+ *       200: { description: Cached external profiles with per-provider sync results }
+ * /api/v1/external-profiles/sync/{provider}:
+ *   post:
+ *     tags: [ExternalProfiles]
+ *     summary: Sync a single provider (student)
+ *     security: [ { bearerAuth: [] } ]
+ *     parameters:
+ *       - in: path
+ *         name: provider
+ *         required: true
+ *         schema: { type: string, enum: [leetcode, hackerrank, codeforces, github] }
+ *       - in: query
+ *         name: force
+ *         schema: { type: boolean, default: false }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               force: { type: boolean, default: false }
+ *     responses:
+ *       200: { description: Cached external profiles with per-provider sync result }
+ * /api/v1/external-profiles/me:
+ *   get:
+ *     tags: [ExternalProfiles]
+ *     summary: Get my connected external profile usernames + cached data (student)
+ *     security: [ { bearerAuth: [] } ]
+ *     responses:
+ *       200: { description: External profiles block }
+ */
+/**
+ * @openapi
  * /api/v1/verifications/upload:
  *   post:
  *     tags: [Verifications]

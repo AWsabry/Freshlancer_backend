@@ -1,11 +1,9 @@
 const path = require('path');
-const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
 // const preventSleep = require('./preventSleep');
 
-// Load config from same directory as server.js (works regardless of process cwd / PM2)
-dotenv.config({ path: path.join(__dirname, 'config.env') });
+require('./utils/loadEnv').loadEnv();
 
 //listen to uncaught exceptions
 //uncaught exceptions are exceptions that are not handled by express

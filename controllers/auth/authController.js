@@ -682,6 +682,12 @@ exports.getMe = catchAsync(async (req, res, next) => {
 
 // Update user profile (personal info and student profile)
 exports.updateMe = catchAsync(async (req, res, next) => {
+  const {
+    normalizeUsername,
+    getProviderProfileUrl,
+    isSupportedProvider,
+  } = require('../../services/externalProfiles/externalProfiles.utils');
+
   // 1) Create error if user POSTs password data
   if (req.body.password || req.body.passwordConfirm) {
     return next(
@@ -827,6 +833,41 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       }
     }
 
+    // External profiles (username-only)
+    if (sp.externalProfiles?.providers && typeof sp.externalProfiles.providers === 'object') {
+      const providers = sp.externalProfiles.providers;
+      Object.keys(providers).forEach((provider) => {
+        if (!isSupportedProvider(provider)) return;
+        const p = providers[provider];
+        if (!p || typeof p !== 'object') return;
+        if (p.username === undefined) return;
+
+        const normalized = normalizeUsername(p.username);
+        const basePath = `studentProfile.externalProfiles.providers.${provider}`;
+
+        // Allow clearing username by sending "" or null.
+        if (normalized === null) {
+          updateData[`${basePath}.username`] = null;
+          updateData[`${basePath}.profileUrl`] = null;
+          updateData[`${basePath}.lastSyncedAt`] = null;
+          updateData[`${basePath}.syncStatus`] = 'disconnected';
+          updateData[`${basePath}.syncError`] = null;
+          // Clear cached provider-specific data; we do this in-memory later when applying to user object.
+          updateData[`studentProfile.externalProfiles.stats.${provider}`] = undefined;
+          return;
+        }
+
+        if (typeof normalized === 'string') {
+          updateData[`${basePath}.username`] = normalized;
+          updateData[`${basePath}.profileUrl`] = getProviderProfileUrl(provider, normalized);
+          updateData[`${basePath}.syncStatus`] = provider === 'hackerrank' ? 'linkOnly' : 'connected';
+          updateData[`${basePath}.syncError`] = null;
+          // Reset sync timestamp when username changes (actual clearing happens after load).
+          updateData[`${basePath}.lastSyncedAt`] = null;
+        }
+      });
+    }
+
     // Bio and availability - convert empty strings to undefined for enum fields
     if (sp.bio !== undefined) updateData['studentProfile.bio'] = sp.bio;
     if (sp.availability !== undefined) {
@@ -937,6 +978,33 @@ exports.updateMe = catchAsync(async (req, res, next) => {
     const user = await User.findById(req.user.id);
     if (!user) {
       return next(new AppError('User not found', 404));
+    }
+
+    // If external profile usernames are changing/cleared, clear cached badges/stats for those providers.
+    if (req.user.role === 'student' && req.body.studentProfile?.externalProfiles?.providers) {
+      const providers = req.body.studentProfile.externalProfiles.providers;
+      if (user.studentProfile?.externalProfiles) {
+        const existingBadges = Array.isArray(user.studentProfile.externalProfiles.badges)
+          ? user.studentProfile.externalProfiles.badges
+          : [];
+
+        Object.keys(providers).forEach((provider) => {
+          if (!isSupportedProvider(provider)) return;
+          const incoming = providers[provider];
+          if (!incoming || typeof incoming !== 'object' || incoming.username === undefined) return;
+
+          const normalized = normalizeUsername(incoming.username);
+          const currentUsername = user.studentProfile.externalProfiles?.providers?.[provider]?.username || null;
+
+          // Clear caches if username changes or is cleared.
+          if (normalized === null || (typeof normalized === 'string' && normalized !== currentUsername)) {
+            user.studentProfile.externalProfiles.badges = existingBadges.filter((b) => b?.provider !== provider);
+            if (user.studentProfile.externalProfiles.stats && typeof user.studentProfile.externalProfiles.stats === 'object') {
+              delete user.studentProfile.externalProfiles.stats[provider];
+            }
+          }
+        });
+      }
     }
 
     // Apply updates to the user object

@@ -1,4 +1,4 @@
-const { BRAND_COLORS } = require('./emailConstants');
+const { BRAND_COLORS, LOGO_URL } = require('./emailConstants');
 const {
   createEmailWrapper,
   createEmailButton,
@@ -268,14 +268,11 @@ const EMAIL_TEMPLATES = {
       { label: 'Message', value: options.contactMessage },
     ];
 
-    // Hardcoded OG image URL
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
-
     return {
       subject: options.subject || `New Contact Form Submission: ${options.contactSubject}`,
       content: createEmailWrapper(`
         <div style="text-align: center; margin-bottom: 30px;">
-          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+          <img src="${LOGO_URL}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
         </div>
         ${createHeader('New Contact Form Submission 📧')}
         ${createParagraph('You have received a new message from the contact form on Freshlancer.')}
@@ -308,14 +305,11 @@ const EMAIL_TEMPLATES = {
       'Monthly application limit reset',
     ];
 
-    // Hardcoded OG image URL
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
-
     return {
       subject: 'Welcome to Premium! Your Subscription is Active 🎉',
       content: createEmailWrapper(`
         <div style="text-align: center; margin-bottom: 30px;">
-          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+          <img src="${LOGO_URL}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
         </div>
         ${createHeader('Welcome to Premium! 🎉')}
         ${createGreeting(options.name)}
@@ -355,13 +349,11 @@ const EMAIL_TEMPLATES = {
    * Donation confirmation email template
    */
   'verification-approved': (options) => {
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
-
     return {
       subject: '✅ Your Student Verification Has Been Approved!',
       content: createEmailWrapper(`
         <div style="text-align: center; margin-bottom: 30px;">
-          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+          <img src="${LOGO_URL}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
         </div>
         ${createHeader('Verification Approved! ✅')}
         ${createGreeting(options.name)}
@@ -406,13 +398,11 @@ const EMAIL_TEMPLATES = {
     };
   },
   'verification-rejected': (options) => {
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
-
     return {
       subject: '⚠️ Student Verification Update - Action Required',
       content: createEmailWrapper(`
         <div style="text-align: center; margin-bottom: 30px;">
-          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+          <img src="${LOGO_URL}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
         </div>
         ${createHeader('Verification Review Update')}
         ${createGreeting(options.name)}
@@ -482,14 +472,11 @@ const EMAIL_TEMPLATES = {
       'Makes a real difference in students\' lives',
     ];
 
-    // Hardcoded OG image URL
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
-
     return {
       subject: 'Thank You for Your Generous Support! ❤️',
       content: createEmailWrapper(`
         <div style="text-align: center; margin-bottom: 30px;">
-          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+          <img src="${LOGO_URL}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
         </div>
         ${createHeader('Thank You for Your Support! ❤️')}
         ${createGreeting(options.name)}
@@ -552,14 +539,11 @@ const EMAIL_TEMPLATES = {
       benefits.push('Upgrade to Premium for 100 applications per month!');
     }
 
-    // Hardcoded OG image URL
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
-
     return {
       subject: 'Your Application Limit Has Been Reset! 🎉',
       content: createEmailWrapper(`
         <div style="text-align: center; margin-bottom: 30px;">
-          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+          <img src="${LOGO_URL}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
         </div>
         ${createHeader('Application Limit Reset! 🎉')}
         ${createGreeting(options.name)}
@@ -609,7 +593,6 @@ const EMAIL_TEMPLATES = {
    * Database backup success notification
    */
   'backup-notification': (options) => {
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
     const backupInfo = [
       { label: 'Backup Name', value: options.backupResult.backupName },
       { label: 'Backup Size', value: options.backupResult.backupSizeFormatted },
@@ -633,7 +616,7 @@ const EMAIL_TEMPLATES = {
       subject: '✅ Database Backup Completed Successfully',
       content: createEmailWrapper(`
         <div style="text-align: center; margin-bottom: 30px;">
-          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+          <img src="${LOGO_URL}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
         </div>
         ${createHeader('✅ Database Backup Completed Successfully')}
         ${createGreeting(options.name)}
@@ -665,13 +648,11 @@ const EMAIL_TEMPLATES = {
    * Database backup error notification
    */
   'backup-error': (options) => {
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
-
     return {
       subject: '❌ Database Backup Failed - Action Required',
       content: createEmailWrapper(`
         <div style="text-align: center; margin-bottom: 30px;">
-          <img src="${ogImageUrl}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
+          <img src="${LOGO_URL}" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />
         </div>
         ${createHeader('❌ Database Backup Failed')}
         ${createGreeting(options.name)}
@@ -698,7 +679,6 @@ const EMAIL_TEMPLATES = {
    * Inactive user reminder email template
    */
   'inactive-user-reminder': (options) => {
-    const ogImageUrl = 'https://freshlancer.online/og-image.png';
     const userRole = options.userRole || 'student';
     const daysSince = options.daysSinceLastLogin === 'never' 
       ? 'a while' 
@@ -728,7 +708,7 @@ const EMAIL_TEMPLATES = {
       subject: subject,
       content: createEmailWrapper(
         '<div style="text-align: center; margin-bottom: 30px;">' +
-        '<img src="' + ogImageUrl + '" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />' +
+        '<img src="' + LOGO_URL + '" alt="Freshlancer Logo" style="max-width: 300px; height: auto; margin: 0 auto; display: block; background: transparent;" />' +
         '</div>' +
         createHeader(headerText) +
         createGreeting(options.name) +

@@ -3,6 +3,72 @@ const validator = require('validator');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
+const externalProfileProviderSchema = new mongoose.Schema(
+  {
+    username: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
+    profileUrl: {
+      type: String,
+      trim: true,
+    },
+    lastSyncedAt: Date,
+    syncStatus: {
+      type: String,
+      enum: ['disconnected', 'connected', 'synced', 'error', 'linkOnly'],
+      default: 'disconnected',
+    },
+    syncError: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Sync error must be less than 500 characters'],
+    },
+  },
+  { _id: false }
+);
+
+const externalBadgeSchema = new mongoose.Schema(
+  {
+    provider: {
+      type: String,
+      enum: ['leetcode', 'hackerrank', 'codeforces', 'github'],
+      required: true,
+    },
+    id: String,
+    name: String,
+    displayName: String,
+    iconUrl: String,
+    earnedAt: Date,
+    meta: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+  },
+  { _id: false }
+);
+
+const externalProfilesSchema = new mongoose.Schema(
+  {
+    providers: {
+      leetcode: { type: externalProfileProviderSchema, default: {} },
+      hackerrank: { type: externalProfileProviderSchema, default: {} },
+      codeforces: { type: externalProfileProviderSchema, default: {} },
+      github: { type: externalProfileProviderSchema, default: {} },
+    },
+    badges: {
+      type: [externalBadgeSchema],
+      default: [],
+    },
+    stats: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -364,6 +430,12 @@ const userSchema = new mongoose.Schema({
         },
       },
     ],
+
+    // External coding platforms (username-only connections + cached badges/stats)
+    externalProfiles: {
+      type: externalProfilesSchema,
+      default: {},
+    },
   },
 
   // Client-specific fields (only filled if role is 'client')

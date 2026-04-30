@@ -1,8 +1,7 @@
 const mongoose = require('mongoose');
 const path = require('path');
-const dotenv = require('dotenv');
 
-dotenv.config({ path: path.join(__dirname, '..', 'config.env') });
+require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
 
 /**
  * Migration: Convert existing USD currency to EGP for job-related data.

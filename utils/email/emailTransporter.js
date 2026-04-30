@@ -38,7 +38,7 @@ const createTransporter = async () => {
       // Fallback to Ethereal Email for development/testing
       logger.warn('⚠️  No SMTP configuration found. Using Ethereal Email (testing service).');
       logger.warn('⚠️  Emails will NOT be sent to real addresses. Check server console for preview URLs.');
-      logger.warn('⚠️  To send real emails, configure SMTP_HOST, SMTP_USER, and SMTP_PASS in config.env');
+      logger.warn('⚠️  To send real emails, configure SMTP_HOST, SMTP_USER, and SMTP_PASS in your env file');
       
       const testAccount = await nodemailer.createTestAccount();
       transporter = nodemailer.createTransport({
