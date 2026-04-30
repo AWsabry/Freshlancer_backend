@@ -164,21 +164,20 @@ notificationSchema.index({ priority: 1 });
 notificationSchema.index({ expiresAt: 1 });
 
 // Update readAt timestamp when marked as read
-notificationSchema.pre('save', function (next) {
+notificationSchema.pre('save', function () {
   if (this.isModified('isRead') && this.isRead === true && !this.readAt) {
     this.readAt = Date.now();
   }
-  next();
 });
 
-// Check user's notification preferences before creating
-notificationSchema.pre('save', async function (next) {
+// Check user's notification preferences before creating (Mongoose 8+: async middleware must not use `next`)
+notificationSchema.pre('save', async function () {
   if (this.isNew) {
     const User = mongoose.model('User');
     const user = await User.findById(this.user);
 
     if (!user) {
-      return next(new Error('User not found'));
+      throw new Error('User not found');
     }
 
     // Check email notification preference
@@ -202,7 +201,6 @@ notificationSchema.pre('save', async function (next) {
       }
     }
   }
-  next();
 });
 
 // Populate user information when querying (Mongoose 6+ query middleware: do not use `next`)

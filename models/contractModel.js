@@ -347,11 +347,9 @@ contractSchema.pre('validate', function (next) {
     const sum = percents.reduce((a, b) => a + b, 0);
     const roundedSum = Math.round(sum * 100) / 100;
     if (roundedSum !== 100) {
-      return next(
-        AppError.badRequest(
-          `Milestone percents must total 100. Current total is ${roundedSum}`,
-          'CONTRACT_MILESTONE_PERCENT_TOTAL_INVALID'
-        )
+      throw AppError.badRequest(
+        `Milestone percents must total 100. Current total is ${roundedSum}`,
+        'CONTRACT_MILESTONE_PERCENT_TOTAL_INVALID'
       );
     }
 
@@ -360,19 +358,15 @@ contractSchema.pre('validate', function (next) {
     for (const m of this.milestones) {
       const title = (m?.plan?.title || '').trim().toLowerCase();
       if (!title) {
-        return next(
-          AppError.badRequest(
-            'Milestone title is required',
-            'CONTRACT_MILESTONE_TITLE_REQUIRED'
-          )
+        throw AppError.badRequest(
+          'Milestone title is required',
+          'CONTRACT_MILESTONE_TITLE_REQUIRED'
         );
       }
       if (titleSet.has(title)) {
-        return next(
-          AppError.badRequest(
-            `Duplicate milestone title "${m.plan.title}"`,
-            'CONTRACT_MILESTONE_DUPLICATE_TITLE'
-          )
+        throw AppError.badRequest(
+          `Duplicate milestone title "${m.plan.title}"`,
+          'CONTRACT_MILESTONE_DUPLICATE_TITLE'
         );
       }
       titleSet.add(title);
@@ -388,11 +382,9 @@ contractSchema.pre('validate', function (next) {
         m.plan.expectedDuration = this.expectedDuration || '1-2 weeks';
       }
       if (m.plan.expectedDuration && !DURATION_OPTIONS.includes(m.plan.expectedDuration)) {
-        return next(
-          AppError.badRequest(
-            `Milestone "${m.plan.title}" has invalid expected duration`,
-            'CONTRACT_MILESTONE_DURATION_INVALID'
-          )
+        throw AppError.badRequest(
+          `Milestone "${m.plan.title}" has invalid expected duration`,
+          'CONTRACT_MILESTONE_DURATION_INVALID'
         );
       }
 
@@ -402,11 +394,9 @@ contractSchema.pre('validate', function (next) {
       m.state.amount = amount;
       m.state.fundedAmount = roundMoney(m.state.fundedAmount || 0);
       if (m.state.fundedAmount > amount + 0.0001) {
-        return next(
-          AppError.badRequest(
-            `Milestone "${m.plan.title}" funded amount cannot exceed its amount`,
-            'CONTRACT_MILESTONE_FUNDED_EXCEEDS_AMOUNT'
-          )
+        throw AppError.badRequest(
+          `Milestone "${m.plan.title}" funded amount cannot exceed its amount`,
+          'CONTRACT_MILESTONE_FUNDED_EXCEEDS_AMOUNT'
         );
       }
     }
@@ -421,31 +411,26 @@ contractSchema.pre('validate', function (next) {
 });
 
 // Auto-bump version + clear signatures if terms changed pre-sign
-contractSchema.pre('save', function (next) {
-  try {
-    this.updatedAt = Date.now();
-    if (didTermsChange(this)) {
-      this.lastEditedAt = Date.now();
+contractSchema.pre('save', function () {
+  this.updatedAt = Date.now();
+  if (didTermsChange(this)) {
+    this.lastEditedAt = Date.now();
 
-      // Only allow edits pre-signature; if already signed, controller should block
-      if (this.status === 'draft' || this.status === 'pending_signatures') {
-        const hadAnySignature = !!(this.clientSignature?.signedAt || this.studentSignature?.signedAt);
-        this.version = (this.version || 0) + 1;
+    // Only allow edits pre-signature; if already signed, controller should block
+    if (this.status === 'draft' || this.status === 'pending_signatures') {
+      const hadAnySignature = !!(this.clientSignature?.signedAt || this.studentSignature?.signedAt);
+      this.version = (this.version || 0) + 1;
 
-        // Changing terms invalidates signatures
-        this.clientSignature = null;
-        this.studentSignature = null;
-        this.signedAt = null;
+      // Changing terms invalidates signatures
+      this.clientSignature = null;
+      this.studentSignature = null;
+      this.signedAt = null;
 
-        // Keep status pending if it was already shared
-        if (hadAnySignature && this.status === 'draft') {
-          this.status = 'pending_signatures';
-        }
+      // Keep status pending if it was already shared
+      if (hadAnySignature && this.status === 'draft') {
+        this.status = 'pending_signatures';
       }
     }
-    next();
-  } catch (err) {
-    next(err);
   }
 });
 

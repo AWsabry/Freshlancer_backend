@@ -151,19 +151,14 @@ jobPostSchema.set('toJSON', { flattenMaps: true });
 jobPostSchema.set('toObject', { flattenMaps: true });
 
 // Validate budget range
-jobPostSchema.pre('save', function (next) {
+jobPostSchema.pre('save', function () {
   if (this.budget.max < this.budget.min) {
-    return next(
-      new Error(
-        'Maximum budget must be greater than or equal to minimum budget'
-      )
-    );
+    throw new Error('Maximum budget must be greater than or equal to minimum budget');
   }
-  next();
 });
 
-// Create slug from title with error handling
-jobPostSchema.pre('save', async function (next) {
+// Create slug from title with error handling (Mongoose 8+: async middleware must not use `next`)
+jobPostSchema.pre('save', async function () {
   if (this.isModified('title') && this.title) {
     try {
       // Clean the title first - remove extra whitespace and special characters
@@ -233,15 +228,13 @@ jobPostSchema.pre('save', async function (next) {
       this.slug = `job-${timestamp}-${randomStr}`;
     }
   }
-  next();
 });
 
 // Update the updatedAt field
-jobPostSchema.pre('save', function (next) {
+jobPostSchema.pre('save', function () {
   if (!this.isNew) {
     this.updatedAt = Date.now();
   }
-  next();
 });
 
 // Populate client information when querying (Mongoose 6+ query middleware: do not use `next`)

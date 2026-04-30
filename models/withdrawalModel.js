@@ -93,7 +93,7 @@ withdrawalSchema.index({ status: 1 });
 withdrawalSchema.index({ transaction: 1 });
 
 // Update timestamps
-withdrawalSchema.pre('save', function (next) {
+withdrawalSchema.pre('save', function () {
   this.updatedAt = Date.now();
   if (this.isModified('status')) {
     switch (this.status) {
@@ -108,7 +108,6 @@ withdrawalSchema.pre('save', function (next) {
         break;
     }
   }
-  next();
 });
 
 // Populate user and transaction (Mongoose 6+ query middleware: do not use `next`)

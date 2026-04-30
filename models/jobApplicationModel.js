@@ -240,69 +240,63 @@ jobApplicationSchema.index({ createdAt: -1 });
 jobApplicationSchema.index({ readByClient: 1 });
 jobApplicationSchema.index({ priority: 1 });
 
-// Generate unique application number
-jobApplicationSchema.pre('save', async function (next) {
+// Generate unique application number (Mongoose 8+: async middleware must not use `next`)
+jobApplicationSchema.pre('save', async function () {
   if (this.isNew) {
     const count = await this.constructor.countDocuments();
     this.applicationNumber = `APP-${Date.now()}-${(count + 1)
       .toString()
       .padStart(4, '0')}`;
   }
-  next();
 });
 
 // Update the updatedAt field
-jobApplicationSchema.pre('save', function (next) {
+jobApplicationSchema.pre('save', function () {
   if (!this.isNew) {
     this.updatedAt = Date.now();
   }
-  next();
 });
 
 // Set withdrawal timestamp when status changes to withdrawn
-jobApplicationSchema.pre('save', function (next) {
+jobApplicationSchema.pre('save', function () {
   if (this.isModified('status') && this.status === 'withdrawn') {
     this.withdrawnAt = Date.now();
   }
-  next();
 });
 
 // Update readByClientAt when readByClient changes to true
-jobApplicationSchema.pre('save', function (next) {
+jobApplicationSchema.pre('save', function () {
   if (this.isModified('readByClient') && this.readByClient === true) {
     this.readByClientAt = Date.now();
   }
-  next();
 });
 
-// Validate that only students can apply
-jobApplicationSchema.pre('save', async function (next) {
+// Validate that only students can apply (Mongoose 8+: async middleware must not use `next`)
+jobApplicationSchema.pre('save', async function () {
   if (this.isNew) {
     const User = mongoose.model('User');
     const student = await User.findById(this.student);
     if (!student || student.role !== 'student') {
-      return next(new Error('Only students can apply for jobs'));
+      throw new Error('Only students can apply for jobs');
     }
   }
-  next();
 });
 
-// Validate that job post belongs to a client
-jobApplicationSchema.pre('save', async function (next) {
+// Validate that job post belongs to a client (Mongoose 8+: async middleware must not use `next`)
+jobApplicationSchema.pre('save', async function () {
   if (this.isNew) {
     const JobPost = mongoose.model('JobPost');
     const jobPost = await JobPost.findById(this.jobPost).populate('client');
     if (!jobPost) {
-      return next(new Error('Job post not found'));
+      throw new Error('Job post not found');
     }
     if (jobPost.client.role !== 'client') {
-      return next(new Error('Job post must belong to a client'));
+      throw new Error('Job post must belong to a client');
     }
     if (jobPost.status !== 'open') {
-      return next(new Error('Cannot apply to a job that is not open'));
+      throw new Error('Cannot apply to a job that is not open');
     }
   }
-  next();
 });
 
 // Update job post applications count

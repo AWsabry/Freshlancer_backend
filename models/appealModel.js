@@ -160,9 +160,8 @@ appealSchema.index({ respondent: 1, createdAt: -1 });
 appealSchema.index({ status: 1, createdAt: -1 });
 
 // Pre-save hook to update updatedAt
-appealSchema.pre('save', function (next) {
+appealSchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 // Populate opener and respondent on find (Mongoose 6+ query middleware: do not use `next`)
