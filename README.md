@@ -2,6 +2,8 @@
 
 Express/MongoDB backend for Freshlancer. Configuration is loaded via [`utils/loadEnv.js`](utils/loadEnv.js).
 
+**Runtime:** Node **18.18+** (recommended: 20 LTS). The stack uses **Mongoose 9** with the **MongoDB Node driver 7** (no `useNewUrlParser` / `useUnifiedTopology` / `useFindAndModify` in `mongoose.connect`). Your Atlas or self-hosted MongoDB server should run a **currently supported MongoDB release** (6.x–8.x is typical with this driver).
+
 ## Environment
 
 | File | When |

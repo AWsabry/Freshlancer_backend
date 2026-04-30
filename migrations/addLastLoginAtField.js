@@ -11,13 +11,7 @@ require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
  */
 
 // Connect to MongoDB
-mongoose
-  .connect(process.env.DATABASE, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    useCreateIndex: true,
-    useFindAndModify: false,
-  })
+mongoose.connect(process.env.DATABASE)
   .then(() => {
     console.log('✅ Connected to MongoDB');
     addLastLoginAtField();

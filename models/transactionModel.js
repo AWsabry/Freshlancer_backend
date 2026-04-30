@@ -271,8 +271,8 @@ transactionSchema.pre('save', function (next) {
   next();
 });
 
-// Populate user information when querying
-transactionSchema.pre(/^find/, function (next) {
+// Populate user information when querying (Mongoose 6+ query middleware: do not use `next`)
+transactionSchema.pre(/^find/, function () {
   this.populate({
     path: 'user',
     select: 'name email role',
@@ -285,7 +285,6 @@ transactionSchema.pre(/^find/, function (next) {
       path: 'payee',
       select: 'name email',
     });
-  next();
 });
 
 // Static method to calculate total revenue

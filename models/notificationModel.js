@@ -205,13 +205,12 @@ notificationSchema.pre('save', async function (next) {
   next();
 });
 
-// Populate user information when querying
-notificationSchema.pre(/^find/, function (next) {
+// Populate user information when querying (Mongoose 6+ query middleware: do not use `next`)
+notificationSchema.pre(/^find/, function () {
   this.populate({
     path: 'user',
     select: 'name email photo',
   });
-  next();
 });
 
 // Static method to create and send notification

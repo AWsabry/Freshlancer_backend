@@ -160,13 +160,12 @@ subscriptionSchema.methods.resetMonthlyLimit = async function () {
   await this.save();
 };
 
-// Populate student information when querying
-subscriptionSchema.pre(/^find/, function (next) {
+// Populate student information when querying (Mongoose 6+ query middleware: do not use `next`)
+subscriptionSchema.pre(/^find/, function () {
   this.populate({
     path: 'student',
     select: 'name email photo role',
   });
-  next();
 });
 
 const Subscription = mongoose.model('Subscription', subscriptionSchema);

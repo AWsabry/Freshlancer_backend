@@ -111,8 +111,8 @@ withdrawalSchema.pre('save', function (next) {
   next();
 });
 
-// Populate user and transaction
-withdrawalSchema.pre(/^find/, function (next) {
+// Populate user and transaction (Mongoose 6+ query middleware: do not use `next`)
+withdrawalSchema.pre(/^find/, function () {
   this.populate({
     path: 'user',
     select: 'name email phone role',
@@ -120,7 +120,6 @@ withdrawalSchema.pre(/^find/, function (next) {
     path: 'transaction',
     select: 'amount currency status description invoiceNumber',
   });
-  next();
 });
 
 const Withdrawal = mongoose.model('Withdrawal', withdrawalSchema);
