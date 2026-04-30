@@ -55,9 +55,8 @@ const contactSchema = new mongoose.Schema({
 });
 
 // Update the updatedAt field before saving
-contactSchema.pre('save', function (next) {
+contactSchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 const Contact = mongoose.model('Contact', contactSchema);

@@ -66,9 +66,8 @@ const universitySchema = new mongoose.Schema({
 });
 
 // Update the updatedAt field before saving
-universitySchema.pre('save', function (next) {
+universitySchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 // Indexes for faster queries

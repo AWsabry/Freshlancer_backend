@@ -196,11 +196,9 @@ categorySchema.pre('validate', function (next) {
           spec.max !== undefined &&
           spec.max < spec.min
         ) {
-          return next(
-            AppError.badRequest(
-              `Spec "${key}" number range is invalid (max < min)`,
-              'CATEGORY_SPEC_NUMBER_RANGE_INVALID'
-            )
+          throw AppError.badRequest(
+            `Spec "${key}" number range is invalid (max < min)`,
+            'CATEGORY_SPEC_NUMBER_RANGE_INVALID'
           );
         }
       }
@@ -213,9 +211,8 @@ categorySchema.pre('validate', function (next) {
 });
 
 // Update the updatedAt field before saving
-categorySchema.pre('save', function (next) {
+categorySchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 // Index for faster queries

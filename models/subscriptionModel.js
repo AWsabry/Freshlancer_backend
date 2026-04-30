@@ -107,11 +107,10 @@ subscriptionSchema.index({ endDate: 1 });
 subscriptionSchema.index({ limitResetDate: 1 });
 
 // Update the updatedAt field
-subscriptionSchema.pre('save', function (next) {
+subscriptionSchema.pre('save', function () {
   if (!this.isNew) {
     this.updatedAt = Date.now();
   }
-  next();
 });
 
 // Update student subscription tier when subscription changes

@@ -105,19 +105,17 @@ profileViewSchema.index({ viewType: 1 });
 profileViewSchema.index({ isShortlisted: 1 });
 
 // Update action taken timestamp
-profileViewSchema.pre('save', function (next) {
+profileViewSchema.pre('save', function () {
   if (this.isModified('actionTaken') && this.actionTaken !== 'none') {
     this.actionTakenAt = Date.now();
   }
-  next();
 });
 
 // Update shortlisted timestamp
-profileViewSchema.pre('save', function (next) {
+profileViewSchema.pre('save', function () {
   if (this.isModified('isShortlisted') && this.isShortlisted === true) {
     this.shortlistedAt = Date.now();
   }
-  next();
 });
 
 // Populate related documents when querying (Mongoose 6+ query middleware: do not use `next`)
