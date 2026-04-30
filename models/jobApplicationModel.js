@@ -325,8 +325,8 @@ jobApplicationSchema.post('findOneAndDelete', async (doc) => {
   }
 });
 
-// Populate job post and student information when querying
-jobApplicationSchema.pre(/^find/, function (next) {
+// Populate job post and student information when querying (Mongoose 6+ query middleware: do not use `next`)
+jobApplicationSchema.pre(/^find/, function () {
   this.populate({
     path: 'jobPost',
     select:
@@ -339,7 +339,6 @@ jobApplicationSchema.pre(/^find/, function (next) {
     path: 'student',
     select: 'name email photo age nationality studentProfile',
   });
-  next();
 });
 
 const JobApplication = mongoose.model('JobApplication', jobApplicationSchema);

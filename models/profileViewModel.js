@@ -120,8 +120,8 @@ profileViewSchema.pre('save', function (next) {
   next();
 });
 
-// Populate related documents when querying
-profileViewSchema.pre(/^find/, function (next) {
+// Populate related documents when querying (Mongoose 6+ query middleware: do not use `next`)
+profileViewSchema.pre(/^find/, function () {
   this.populate({
     path: 'client',
     select: 'name email photo clientProfile.companyName',
@@ -138,7 +138,6 @@ profileViewSchema.pre(/^find/, function (next) {
       path: 'package',
       select: 'packageName packageType',
     });
-  next();
 });
 
 // Static method to check if client has viewed a student's full profile

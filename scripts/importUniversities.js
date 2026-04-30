@@ -7,10 +7,7 @@ require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
 
 // Connect to database
 mongoose
-  .connect(process.env.DATABASE, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(process.env.DATABASE)
   .then(() => {
     console.log('✅ Database connected successfully');
     importUniversities();

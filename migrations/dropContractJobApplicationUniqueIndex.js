@@ -11,11 +11,7 @@ require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
  * Run with: node migrations/dropContractJobApplicationUniqueIndex.js
  */
 
-mongoose
-  .connect(process.env.DATABASE, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+mongoose.connect(process.env.DATABASE)
   .then(() => {
     console.log('✅ Connected to MongoDB');
     dropJobApplicationUniqueIndex();

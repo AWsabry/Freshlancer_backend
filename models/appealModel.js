@@ -165,8 +165,8 @@ appealSchema.pre('save', function (next) {
   next();
 });
 
-// Populate opener and respondent on find
-appealSchema.pre(/^find/, function (next) {
+// Populate opener and respondent on find (Mongoose 6+ query middleware: do not use `next`)
+appealSchema.pre(/^find/, function () {
   this.populate({
     path: 'opener',
     select: 'name email photo role',
@@ -195,7 +195,6 @@ appealSchema.pre(/^find/, function (next) {
       path: 'resolvedBy',
       select: 'name email role',
     });
-  next();
 });
 
 // Static method to check if contract has active appeal

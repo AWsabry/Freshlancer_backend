@@ -244,8 +244,8 @@ jobPostSchema.pre('save', function (next) {
   next();
 });
 
-// Populate client information when querying
-jobPostSchema.pre(/^find/, function (next) {
+// Populate client information when querying (Mongoose 6+ query middleware: do not use `next`)
+jobPostSchema.pre(/^find/, function () {
   this.populate({
     path: 'client',
     select: 'name email photo role',
@@ -254,7 +254,6 @@ jobPostSchema.pre(/^find/, function (next) {
     path: 'startup',
     select: 'startupName',
   });
-  next();
 });
 
 // Index for better query performance

@@ -449,8 +449,8 @@ contractSchema.pre('save', function (next) {
   }
 });
 
-// Populate for convenience
-contractSchema.pre(/^find/, function (next) {
+// Populate for convenience (Mongoose 6+ query middleware: do not use `next`)
+contractSchema.pre(/^find/, function () {
   this.populate([
     { path: 'client', select: 'name email phone role clientProfile location' },
     { path: 'student', select: 'name email phone role studentProfile location' },
@@ -460,7 +460,6 @@ contractSchema.pre(/^find/, function (next) {
     { path: 'changeLog.updatedBy', select: 'name email role' },
     { path: 'changeLog.confirmedBy', select: 'name email role' },
   ]);
-  next();
 });
 
 // Indexes

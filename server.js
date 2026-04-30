@@ -15,12 +15,9 @@ process.on('uncaughtException', (err) => {
 
 const app = require('./app');
 
-// Connect to MongoDB
-// Note: If your DATABASE connection string contains query parameters like w=majority, wtimeout, j, fsync,
-// these should be removed from the URL and handled by mongoose options if needed.
-// The useUnifiedTopology option addresses the Server Discovery deprecation warning.
+// Connect to MongoDB (Mongoose 8+ / MongoDB Node driver 6+ — no legacy useNewUrlParser / useUnifiedTopology)
 mongoose
-  .connect(process.env.DATABASE,)
+  .connect(process.env.DATABASE)
   .then(() => {
     console.log('DB connected successfully');
     
@@ -60,10 +57,16 @@ const gracefulShutdown = (signal) => {
   console.log(`${signal} received. Shutting down gracefully...`);
   server.close(() => {
     console.log('HTTP server closed.');
-    mongoose.connection.close(false, () => {
-      console.log('MongoDB connection closed.');
-      process.exit(0);
-    });
+    mongoose.connection
+      .close()
+      .then(() => {
+        console.log('MongoDB connection closed.');
+        process.exit(0);
+      })
+      .catch((closeErr) => {
+        console.error('MongoDB close error:', closeErr);
+        process.exit(1);
+      });
   });
 };
 

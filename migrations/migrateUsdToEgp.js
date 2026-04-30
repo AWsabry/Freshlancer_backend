@@ -16,11 +16,7 @@ require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
 
 const MIGRATE_WALLET = process.argv.includes('--wallet');
 
-mongoose
-  .connect(process.env.DATABASE, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+mongoose.connect(process.env.DATABASE)
   .then(() => {
     console.log('✅ Connected to MongoDB');
     runMigration();

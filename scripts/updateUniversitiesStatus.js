@@ -6,11 +6,7 @@ require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
 
 const DB = process.env.DATABASE;
 
-mongoose
-  .connect(DB, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+mongoose.connect(DB)
   .then(() => console.log('✅ Database connected successfully'))
   .catch((err) => {
     console.error('❌ Database connection error:', err);
