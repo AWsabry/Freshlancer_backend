@@ -1,9 +1,8 @@
-const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const path = require('path');
 const University = require('../models/universityModel');
 
-dotenv.config({ path: path.resolve(__dirname, '../config.env') });
+require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
 
 const DB = process.env.DATABASE;
 

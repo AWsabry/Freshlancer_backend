@@ -227,6 +227,10 @@ const jobApplicationSchema = new mongoose.Schema({
   },
 });
 
+// Ensure Map fields (e.g. categorySpecAnswers) serialize to plain objects in API responses
+jobApplicationSchema.set('toJSON', { flattenMaps: true });
+jobApplicationSchema.set('toObject', { flattenMaps: true });
+
 // Ensure a student can only apply once per job post
 jobApplicationSchema.index({ jobPost: 1, student: 1 }, { unique: true });
 

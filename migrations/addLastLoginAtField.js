@@ -1,8 +1,7 @@
+const path = require('path');
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
 
-// Load environment variables
-dotenv.config({ path: './config.env' });
+require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
 
 /**
  * Migration: Add lastLoginAt field to all existing users

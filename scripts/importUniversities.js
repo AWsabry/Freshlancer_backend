@@ -1,11 +1,9 @@
-const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
 const University = require('../models/universityModel');
 
-// Load environment variables
-dotenv.config({ path: './config.env' });
+require(path.join(__dirname, '..', 'utils', 'loadEnv')).loadEnv();
 
 // Connect to database
 mongoose

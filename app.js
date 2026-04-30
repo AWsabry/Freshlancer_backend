@@ -31,8 +31,12 @@ const logRouter = require('./routers/logRouter');
 const moderatorRouter = require('./routers/moderatorRouter');
 const contractRouter = require('./routers/contractRouter');
 const appealRouter = require('./routers/appealRouter');
+const externalProfilesRouter = require('./routers/externalProfilesRouter');
+const cvReviewRouter = require('./routers/cvReviewRouter');
 const AppError = require('./utils/AppError');
 const globalErrorHandler = require('./controllers/errorController');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger');
 
 const app = express();
 app.enable('trust proxy');
@@ -90,6 +94,26 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Health check endpoint
+/**
+ * @openapi
+ * /health:
+ *   get:
+ *     tags: [System]
+ *     summary: Liveness and basic server status
+ *     responses:
+ *       200:
+ *         description: Server is up
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: Server is running }
+ *                 timestamp: { type: string, format: date-time }
+ *                 uptime: { type: number, description: process uptime in seconds }
+ *                 environment: { type: string }
+ */
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'success',
@@ -205,6 +229,28 @@ app.use('/api/v1/logs', logRouter);
 app.use('/api/v1/moderator', moderatorRouter);
 app.use('/api/v1/contracts', contractRouter);
 app.use('/api/v1/appeals', appealRouter);
+app.use('/api/v1/external-profiles', externalProfilesRouter);
+app.use('/api/v1/cv-review', cvReviewRouter);
+
+if (process.env.ENABLE_API_DOCS !== 'false') {
+  const relaxSwaggerCsp = (req, res, next) => {
+    res.set(
+      'Content-Security-Policy',
+      "default-src 'self'; base-uri 'self'; font-src 'self' https: data:; frame-ancestors 'self'; img-src 'self' data: https:; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';"
+    );
+    next();
+  };
+  app.get('/api-docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.json(swaggerSpec);
+  });
+  app.use(
+    '/api-docs',
+    relaxSwaggerCsp,
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, { explorer: true })
+  );
+}
 
 //global middleware to handle unhandled routes
 app.all('*', (req, res, next) => {

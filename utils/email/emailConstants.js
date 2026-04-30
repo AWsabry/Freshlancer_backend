@@ -14,11 +14,12 @@ const BRAND_COLORS = {
   info: '#0284c7',
 };
 
-// Logo URL - Loaded from environment variable in config.env
-const LOGO_URL = (process.env.EMAIL_LOGO_URL && process.env.EMAIL_LOGO_URL.trim()) || 
-  'https://via.placeholder.com/200x60/0284c7/ffffff?text=Freshlancer';
+// Logo URL - Loaded from environment variable
+const LOGO_URL =
+  (process.env.EMAIL_LOGO_URL && process.env.EMAIL_LOGO_URL.trim()) ||
+  'https://freshlancer.online/assets/01-B_YTi7cW.png';
 
-// Email domain - Loaded from environment variable in config.env
+// Email domain - Loaded from environment variable
 const EMAIL_DOMAIN = (process.env.EMAIL_DOMAIN && process.env.EMAIL_DOMAIN.trim()) || 'freshlancer.com';
 
 module.exports = {

@@ -1,3 +1,6 @@
+// Use `config.development.env` when NODE_ENV=development, `config.production.env` when production.
+// Start production: `pm2 start ecosystem.config.js --env production`
+// (ensures server loads the production env file; place config.production.env on the server, gitignored)
 module.exports = {
   apps: [
     {

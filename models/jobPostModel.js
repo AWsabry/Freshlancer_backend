@@ -146,6 +146,10 @@ const jobPostSchema = new mongoose.Schema({
   },
 });
 
+// Ensure Map fields (e.g. categorySpecRequirements) serialize to plain objects in API responses
+jobPostSchema.set('toJSON', { flattenMaps: true });
+jobPostSchema.set('toObject', { flattenMaps: true });
+
 // Validate budget range
 jobPostSchema.pre('save', function (next) {
   if (this.budget.max < this.budget.min) {
