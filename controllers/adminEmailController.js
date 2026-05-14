@@ -5,6 +5,7 @@ const AppError = require('../utils/AppError');
 const logger = require('../utils/logger');
 const { createTransporter, logEmailResult } = require('../utils/email/emailTransporter');
 const { createEmailWrapper } = require('../utils/email/emailHelpers');
+const { sendBrevoEmail } = require('../utils/email/brevoEmail');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -168,6 +169,12 @@ const processInlineImages = ({ html, inlineImages = [], mode }) => {
       const base64 = file.buffer.toString('base64');
       const dataUrl = `data:${file.mimetype};base64,${base64}`;
       processed = processed.split(token).join(`<img src="${dataUrl}" alt="${escapeHtml(original)}" style="max-width: 100%; height: auto;" />`);
+    } else if (mode === 'sendEmbed') {
+      // For providers that don't support CID attachments reliably (e.g., API sends),
+      // embed as data URLs to keep content consistent.
+      const base64 = file.buffer.toString('base64');
+      const dataUrl = `data:${file.mimetype};base64,${base64}`;
+      processed = processed.split(token).join(`<img src="${dataUrl}" alt="${escapeHtml(original)}" style="max-width: 100%; height: auto;" />`);
     } else {
       processed = processed.split(token).join(`cid:${cid}`);
       inlineAttachments.push({
@@ -245,6 +252,8 @@ const loadStoredFilesAsBuffers = async (storedFiles = []) => {
   }
   return results;
 };
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 exports.previewAdminEmail = catchAsync(async (req, res, next) => {
   const subject = req.body.subject || '';
@@ -343,15 +352,26 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
   }
 
   const baseWrappedHtml = buildWrappedHtml({ subject, htmlBody, textBody, wrap });
-
-  const transporter = await createTransporter();
+  const emailProvider = (process.env.EMAIL_PROVIDER || '').toLowerCase(); // 'brevo' or ''(smtp)
+  const useBrevo = emailProvider === 'brevo' || !!process.env.BREVO_API_KEY;
+  const transporter = useBrevo ? null : await createTransporter();
+  logger.info(`📨 Admin email provider: ${useBrevo ? 'Brevo' : 'SMTP'}`, {
+    subject,
+    needsPersonalization,
+    audience: (audience || 'students').toLowerCase(),
+    mode: (mode || 'all').toLowerCase(),
+  });
 
   const allAttachments = [
     ...filesToAttachments(attachments),
     // Inline attachments are added per send after token replacement
   ];
 
-  const from = `Freshlancer Team<${process.env.SMTP_USER || 'noreply@freshlancer.online'}>`;
+  const fromEmail = process.env.EMAIL_FROM || process.env.SMTP_USER || 'noreply@freshlancer.online';
+  const fromName = process.env.EMAIL_FROM_NAME || 'Freshlancer Team';
+  const from = `${fromName}<${fromEmail}>`;
+
+  const sendDelayMs = parseInt(process.env.ADMIN_EMAIL_SEND_DELAY_MS || '0', 10);
 
   const results = [];
   let sentCount = 0;
@@ -366,7 +386,11 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
       };
 
       let html = applyTemplate({ html: baseWrappedHtml, text: '', variables: vars }).html;
-      const processedInline = processInlineImages({ html, inlineImages, mode: 'send' });
+      const processedInline = processInlineImages({
+        html,
+        inlineImages,
+        mode: useBrevo ? 'sendEmbed' : 'send',
+      });
       html = processedInline.html;
 
       const text = applyTemplate({
@@ -376,25 +400,47 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
         htmlEscape: false,
       }).text;
 
-      const mailOptions = {
-        from,
-        to: u.email,
-        subject,
-        text: text || 'Please view this email in an HTML-capable email client.',
-        html,
-        attachments:
-          allAttachments.length > 0 || processedInline.inlineAttachments.length > 0
-            ? [...allAttachments, ...processedInline.inlineAttachments]
-            : undefined,
-      };
-
       try {
-        const info = await transporter.sendMail(mailOptions);
-        logEmailResult(info, u.email);
-        results.push({ messageId: info.messageId, chunkSize: 1 });
+        if (useBrevo) {
+          const resp = await sendBrevoEmail({
+            apiKey: process.env.BREVO_API_KEY,
+            fromEmail,
+            fromName,
+            to: [u.email],
+            subject,
+            htmlContent: html,
+            textContent: text || 'Please view this email in an HTML-capable email client.',
+            // Brevo supports attachments, but not CID inline attachments reliably.
+            attachments: allAttachments,
+          });
+          logger.info('✅ Brevo email sent', { to: u.email, messageId: resp?.messageId });
+          results.push({ messageId: resp?.messageId, chunkSize: 1 });
+        } else {
+          const mailOptions = {
+            from,
+            to: u.email,
+            subject,
+            text: text || 'Please view this email in an HTML-capable email client.',
+            html,
+            attachments:
+              allAttachments.length > 0 || processedInline.inlineAttachments.length > 0
+                ? [...allAttachments, ...processedInline.inlineAttachments]
+                : undefined,
+          };
+          const info = await transporter.sendMail(mailOptions);
+          logEmailResult(info, u.email);
+          results.push({ messageId: info.messageId, chunkSize: 1 });
+        }
         sentCount += 1;
       } catch (e) {
+        if (useBrevo) {
+          logger.error('❌ Brevo send failed', { to: u.email, message: e?.message });
+        }
         failedCount += 1;
+      }
+
+      if (sendDelayMs > 0) {
+        await sleep(sendDelayMs);
       }
     }
   } else {
@@ -409,7 +455,11 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
       text: '',
       variables: { actionUrl, dashboardUrl: actionUrl },
     }).html;
-    const processedInline = processInlineImages({ html, inlineImages, mode: 'send' });
+    const processedInline = processInlineImages({
+      html,
+      inlineImages,
+      mode: useBrevo ? 'sendEmbed' : 'send',
+    });
     html = processedInline.html;
 
     const text = applyTemplate({
@@ -420,23 +470,46 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
     }).text;
 
     for (const bccChunk of chunks) {
-      const mailOptions = {
-        from,
-        to: process.env.ADMIN_EMAIL_TO_FALLBACK || from,
-        bcc: bccChunk,
-        subject,
-        text: text || 'Please view this email in an HTML-capable email client.',
-        html,
-        attachments:
-          allAttachments.length > 0 || processedInline.inlineAttachments.length > 0
-            ? [...allAttachments, ...processedInline.inlineAttachments]
-            : undefined,
-      };
+      if (useBrevo) {
+        const resp = await sendBrevoEmail({
+          apiKey: process.env.BREVO_API_KEY,
+          fromEmail,
+          fromName,
+          to: [process.env.ADMIN_EMAIL_TO_FALLBACK || fromEmail],
+          bcc: bccChunk,
+          subject,
+          htmlContent: html,
+          textContent: text || 'Please view this email in an HTML-capable email client.',
+          attachments: allAttachments,
+        });
+        logger.info('✅ Brevo email sent (BCC chunk)', {
+          bccCount: bccChunk.length,
+          messageId: resp?.messageId,
+        });
+        results.push({ messageId: resp?.messageId, chunkSize: bccChunk.length });
+      } else {
+        const mailOptions = {
+          from,
+          to: process.env.ADMIN_EMAIL_TO_FALLBACK || from,
+          bcc: bccChunk,
+          subject,
+          text: text || 'Please view this email in an HTML-capable email client.',
+          html,
+          attachments:
+            allAttachments.length > 0 || processedInline.inlineAttachments.length > 0
+              ? [...allAttachments, ...processedInline.inlineAttachments]
+              : undefined,
+        };
 
-      const info = await transporter.sendMail(mailOptions);
-      logEmailResult(info, `(bcc x${bccChunk.length})`);
-      results.push({ messageId: info.messageId, chunkSize: bccChunk.length });
+        const info = await transporter.sendMail(mailOptions);
+        logEmailResult(info, `(bcc x${bccChunk.length})`);
+        results.push({ messageId: info.messageId, chunkSize: bccChunk.length });
+      }
       sentCount += bccChunk.length;
+
+      if (sendDelayMs > 0) {
+        await sleep(sendDelayMs);
+      }
     }
   }
 
