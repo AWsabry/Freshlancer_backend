@@ -159,7 +159,7 @@ jobPostSchema.pre('save', function (next) {
 });
 
 // Create slug from title with error handling
-jobPostSchema.pre('save', async function (next) {
+jobPostSchema.pre('save', async function () {
   if (this.isModified('title') && this.title) {
     try {
       // Clean the title first - remove extra whitespace and special characters
@@ -229,7 +229,6 @@ jobPostSchema.pre('save', async function (next) {
       this.slug = `job-${timestamp}-${randomStr}`;
     }
   }
-  next();
 });
 
 // Update the updatedAt field
