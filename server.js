@@ -1,26 +1,9 @@
-const fs = require('fs');
-const path = require('path');
-const dotenv = require('dotenv');
+const { loadEnv } = require('./utils/loadEnv');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
 // const preventSleep = require('./preventSleep');
 
-// Load config from same directory as server.js (works regardless of process cwd / PM2).
-// Prefer config.development.env / config.production.env when present; fall back to config.env.
-(function loadEnvFile() {
-  const base = __dirname;
-  const configEnv = path.join(base, 'config.env');
-  const devEnv = path.join(base, '.config.development.env');
-  const prodEnv = path.join(base, '.config.production.env');
-  const devEnvLegacy = path.join(base, 'config.development.env');
-  const prodEnvLegacy = path.join(base, 'config.production.env');
-  const candidates =
-    process.env.NODE_ENV === 'production'
-      ? [prodEnv, prodEnvLegacy, configEnv]
-      : [devEnv, devEnvLegacy, configEnv];
-  const chosen = candidates.find((p) => fs.existsSync(p)) || configEnv;
-  dotenv.config({ path: chosen });
-})();
+loadEnv();
 
 //listen to uncaught exceptions
 //uncaught exceptions are exceptions that are not handled by express
@@ -44,13 +27,7 @@ if (!process.env.DATABASE) {
 // these should be removed from the URL and handled by mongoose options if needed.
 // The useUnifiedTopology option addresses the Server Discovery deprecation warning.
 mongoose
-  .connect(process.env.DATABASE, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    useFindAndModify: false,
-    // Write concern is handled automatically by mongoose
-    // If you need custom write concern, use: writeConcern: { w: 'majority', wtimeout: 5000 }
-  })
+  .connect(process.env.DATABASE)
   .then(() => {
     console.log('DB connected successfully');
     

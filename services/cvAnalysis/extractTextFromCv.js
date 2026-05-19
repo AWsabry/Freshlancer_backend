@@ -1,10 +1,29 @@
 const fs = require('fs').promises;
 const path = require('path');
-const pdfParseModule = require('pdf-parse');
-const mammoth = require('mammoth');
 const AppError = require('../../utils/AppError');
 
-const PDFParseClass = pdfParseModule?.PDFParse;
+function loadPdfParser() {
+  try {
+    const pdfParseModule = require('pdf-parse');
+    return pdfParseModule?.PDFParse;
+  } catch (err) {
+    throw new AppError(
+      'PDF support is not installed on the server. Run: npm install pdf-parse mammoth',
+      500
+    );
+  }
+}
+
+function loadMammoth() {
+  try {
+    return require('mammoth');
+  } catch (err) {
+    throw new AppError(
+      'DOCX support is not installed on the server. Run: npm install pdf-parse mammoth',
+      500
+    );
+  }
+}
 
 const normalizeWhitespace = (s) =>
   String(s || '')
@@ -34,6 +53,7 @@ async function extractTextFromCv({ filePath, mimeType, originalName, maxChars = 
   const isDoc = mimeType === 'application/msword' || ext === '.doc';
 
   if (isPdf) {
+    const PDFParseClass = loadPdfParser();
     if (typeof PDFParseClass !== 'function') {
       throw new AppError('PDF parser is not available on the server.', 500);
     }
@@ -45,6 +65,7 @@ async function extractTextFromCv({ filePath, mimeType, originalName, maxChars = 
       await parser.destroy().catch(() => {});
     }
   } else if (isDocx) {
+    const mammoth = loadMammoth();
     const out = await mammoth.extractRawText({ buffer: buf });
     raw = out.value || '';
   } else if (isDoc) {

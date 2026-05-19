@@ -32,11 +32,24 @@ const moderatorRouter = require('./routers/moderatorRouter');
 const contractRouter = require('./routers/contractRouter');
 const appealRouter = require('./routers/appealRouter');
 const externalProfilesRouter = require('./routers/externalProfilesRouter');
-const cvReviewRouter = require('./routers/cvReviewRouter');
 const AppError = require('./utils/AppError');
 const globalErrorHandler = require('./controllers/errorController');
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./config/swagger');
+
+let cvReviewRouter;
+try {
+  cvReviewRouter = require('./routers/cvReviewRouter');
+} catch (err) {
+  console.warn('[startup] CV review routes disabled:', err.message);
+}
+
+let swaggerUi;
+let swaggerSpec;
+try {
+  swaggerUi = require('swagger-ui-express');
+  swaggerSpec = require('./config/swagger');
+} catch (err) {
+  console.warn('[startup] API docs disabled:', err.message);
+}
 
 const app = express();
 app.enable('trust proxy');
@@ -230,9 +243,11 @@ app.use('/api/v1/moderator', moderatorRouter);
 app.use('/api/v1/contracts', contractRouter);
 app.use('/api/v1/appeals', appealRouter);
 app.use('/api/v1/external-profiles', externalProfilesRouter);
-app.use('/api/v1/cv-review', cvReviewRouter);
+if (cvReviewRouter) {
+  app.use('/api/v1/cv-review', cvReviewRouter);
+}
 
-if (process.env.ENABLE_API_DOCS !== 'false') {
+if (process.env.ENABLE_API_DOCS !== 'false' && swaggerUi && swaggerSpec) {
   const relaxSwaggerCsp = (req, res, next) => {
     res.set(
       'Content-Security-Policy',
