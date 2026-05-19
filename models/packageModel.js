@@ -82,9 +82,8 @@ const packageSchema = new mongoose.Schema({
 });
 
 // Update the updatedAt field before saving
-packageSchema.pre('save', function(next) {
+packageSchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 // Index for active packages

@@ -325,132 +325,111 @@ function didTermsChange(doc) {
 }
 
 // Validation + derived fields
-contractSchema.pre('validate', function (next) {
-  try {
-    // Ensure at least one milestone exists (default single milestone = 100%)
-    if (!Array.isArray(this.milestones) || this.milestones.length === 0) {
-      this.milestones = [
-        {
-          plan: {
-            title: 'Final delivery',
-            description: '',
-            percent: 100,
-            expectedDuration: this.expectedDuration || '1-2 weeks',
-          },
-          state: { status: 'unfunded', fundedAmount: 0 },
+contractSchema.pre('validate', function () {
+  // Ensure at least one milestone exists (default single milestone = 100%)
+  if (!Array.isArray(this.milestones) || this.milestones.length === 0) {
+    this.milestones = [
+      {
+        plan: {
+          title: 'Final delivery',
+          description: '',
+          percent: 100,
+          expectedDuration: this.expectedDuration || '1-2 weeks',
         },
-      ];
-    }
+        state: { status: 'unfunded', fundedAmount: 0 },
+      },
+    ];
+  }
 
-    // Percent totals must equal 100
-    const percents = this.milestones.map((m) => Number(m?.plan?.percent || 0));
-    const sum = percents.reduce((a, b) => a + b, 0);
-    const roundedSum = Math.round(sum * 100) / 100;
-    if (roundedSum !== 100) {
-      return next(
-        AppError.badRequest(
-          `Milestone percents must total 100. Current total is ${roundedSum}`,
-          'CONTRACT_MILESTONE_PERCENT_TOTAL_INVALID'
-        )
+  // Percent totals must equal 100
+  const percents = this.milestones.map((m) => Number(m?.plan?.percent || 0));
+  const sum = percents.reduce((a, b) => a + b, 0);
+  const roundedSum = Math.round(sum * 100) / 100;
+  if (roundedSum !== 100) {
+    throw AppError.badRequest(
+      `Milestone percents must total 100. Current total is ${roundedSum}`,
+      'CONTRACT_MILESTONE_PERCENT_TOTAL_INVALID'
+    );
+  }
+
+  // Enforce unique milestone titles (case-insensitive) for clarity
+  const titleSet = new Set();
+  for (const m of this.milestones) {
+    const title = (m?.plan?.title || '').trim().toLowerCase();
+    if (!title) {
+      throw AppError.badRequest(
+        'Milestone title is required',
+        'CONTRACT_MILESTONE_TITLE_REQUIRED'
+      );
+    }
+    if (titleSet.has(title)) {
+      throw AppError.badRequest(
+        `Duplicate milestone title "${m.plan.title}"`,
+        'CONTRACT_MILESTONE_DUPLICATE_TITLE'
+      );
+    }
+    titleSet.add(title);
+  }
+
+  // Compute milestone amounts from percents
+  const total = roundMoney(this.totalAmount);
+  this.totalAmount = total;
+  for (const m of this.milestones) {
+    // Default milestone duration to contract duration if missing
+    if (!m.plan) m.plan = {};
+    if (!m.plan.expectedDuration) {
+      m.plan.expectedDuration = this.expectedDuration || '1-2 weeks';
+    }
+    if (m.plan.expectedDuration && !DURATION_OPTIONS.includes(m.plan.expectedDuration)) {
+      throw AppError.badRequest(
+        `Milestone "${m.plan.title}" has invalid expected duration`,
+        'CONTRACT_MILESTONE_DURATION_INVALID'
       );
     }
 
-    // Enforce unique milestone titles (case-insensitive) for clarity
-    const titleSet = new Set();
-    for (const m of this.milestones) {
-      const title = (m?.plan?.title || '').trim().toLowerCase();
-      if (!title) {
-        return next(
-          AppError.badRequest(
-            'Milestone title is required',
-            'CONTRACT_MILESTONE_TITLE_REQUIRED'
-          )
-        );
-      }
-      if (titleSet.has(title)) {
-        return next(
-          AppError.badRequest(
-            `Duplicate milestone title "${m.plan.title}"`,
-            'CONTRACT_MILESTONE_DUPLICATE_TITLE'
-          )
-        );
-      }
-      titleSet.add(title);
+    const pct = Number(m?.plan?.percent || 0);
+    const amount = roundMoney((total * pct) / 100);
+    if (!m.state) m.state = {};
+    m.state.amount = amount;
+    m.state.fundedAmount = roundMoney(m.state.fundedAmount || 0);
+    if (m.state.fundedAmount > amount + 0.0001) {
+      throw AppError.badRequest(
+        `Milestone "${m.plan.title}" funded amount cannot exceed its amount`,
+        'CONTRACT_MILESTONE_FUNDED_EXCEEDS_AMOUNT'
+      );
     }
-
-    // Compute milestone amounts from percents
-    const total = roundMoney(this.totalAmount);
-    this.totalAmount = total;
-    for (const m of this.milestones) {
-      // Default milestone duration to contract duration if missing
-      if (!m.plan) m.plan = {};
-      if (!m.plan.expectedDuration) {
-        m.plan.expectedDuration = this.expectedDuration || '1-2 weeks';
-      }
-      if (m.plan.expectedDuration && !DURATION_OPTIONS.includes(m.plan.expectedDuration)) {
-        return next(
-          AppError.badRequest(
-            `Milestone "${m.plan.title}" has invalid expected duration`,
-            'CONTRACT_MILESTONE_DURATION_INVALID'
-          )
-        );
-      }
-
-      const pct = Number(m?.plan?.percent || 0);
-      const amount = roundMoney((total * pct) / 100);
-      if (!m.state) m.state = {};
-      m.state.amount = amount;
-      m.state.fundedAmount = roundMoney(m.state.fundedAmount || 0);
-      if (m.state.fundedAmount > amount + 0.0001) {
-        return next(
-          AppError.badRequest(
-            `Milestone "${m.plan.title}" funded amount cannot exceed its amount`,
-            'CONTRACT_MILESTONE_FUNDED_EXCEEDS_AMOUNT'
-          )
-        );
-      }
-    }
-
-    // Keep an up-to-date contract hash of current terms
-    this.currentContractHash = computeContractHash(this);
-
-    next();
-  } catch (err) {
-    next(err);
   }
+
+  // Keep an up-to-date contract hash of current terms
+  this.currentContractHash = computeContractHash(this);
 });
 
 // Auto-bump version + clear signatures if terms changed pre-sign
-contractSchema.pre('save', function (next) {
-  try {
-    this.updatedAt = Date.now();
-    if (didTermsChange(this)) {
-      this.lastEditedAt = Date.now();
+contractSchema.pre('save', function () {
+  this.updatedAt = Date.now();
+  if (didTermsChange(this)) {
+    this.lastEditedAt = Date.now();
 
-      // Only allow edits pre-signature; if already signed, controller should block
-      if (this.status === 'draft' || this.status === 'pending_signatures') {
-        const hadAnySignature = !!(this.clientSignature?.signedAt || this.studentSignature?.signedAt);
-        this.version = (this.version || 0) + 1;
+    // Only allow edits pre-signature; if already signed, controller should block
+    if (this.status === 'draft' || this.status === 'pending_signatures') {
+      const hadAnySignature = !!(this.clientSignature?.signedAt || this.studentSignature?.signedAt);
+      this.version = (this.version || 0) + 1;
 
-        // Changing terms invalidates signatures
-        this.clientSignature = null;
-        this.studentSignature = null;
-        this.signedAt = null;
+      // Changing terms invalidates signatures
+      this.clientSignature = null;
+      this.studentSignature = null;
+      this.signedAt = null;
 
-        // Keep status pending if it was already shared
-        if (hadAnySignature && this.status === 'draft') {
-          this.status = 'pending_signatures';
-        }
+      // Keep status pending if it was already shared
+      if (hadAnySignature && this.status === 'draft') {
+        this.status = 'pending_signatures';
       }
     }
-    next();
-  } catch (err) {
-    next(err);
   }
 });
 
 // Populate for convenience
-contractSchema.pre(/^find/, function (next) {
+contractSchema.pre(/^find/, function () {
   this.populate([
     { path: 'client', select: 'name email phone role clientProfile location' },
     { path: 'student', select: 'name email phone role studentProfile location' },
@@ -460,7 +439,6 @@ contractSchema.pre(/^find/, function (next) {
     { path: 'changeLog.updatedBy', select: 'name email role' },
     { path: 'changeLog.confirmedBy', select: 'name email role' },
   ]);
-  next();
 });
 
 // Indexes

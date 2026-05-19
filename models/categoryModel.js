@@ -117,105 +117,86 @@ const categorySchema = new mongoose.Schema({
 });
 
 // Validate specs (no free-text, consistent options/ranges, unique keys)
-categorySchema.pre('validate', function (next) {
-  try {
-    const specs = Array.isArray(this.specs) ? this.specs : [];
+categorySchema.pre('validate', function () {
+  const specs = Array.isArray(this.specs) ? this.specs : [];
 
-    // Unique keys within a category (case-sensitive by design)
-    const keySet = new Set();
-    for (const spec of specs) {
-      if (!spec) continue;
-      const key = spec.key;
-      if (!key) continue;
-      if (keySet.has(key)) {
-        return next(AppError.badRequest(`Duplicate spec key "${key}" in category specs`, 'CATEGORY_SPEC_DUPLICATE_KEY'));
-      }
-      keySet.add(key);
+  // Unique keys within a category (case-sensitive by design)
+  const keySet = new Set();
+  for (const spec of specs) {
+    if (!spec) continue;
+    const key = spec.key;
+    if (!key) continue;
+    if (keySet.has(key)) {
+      throw AppError.badRequest(`Duplicate spec key "${key}" in category specs`, 'CATEGORY_SPEC_DUPLICATE_KEY');
+    }
+    keySet.add(key);
 
-      // Must be used somewhere if defined
-      if (!spec.useInJobPost && !spec.useInApplication) {
-        return next(
-          AppError.badRequest(
-            `Spec "${key}" must be enabled for job posting and/or application`,
-            'CATEGORY_SPEC_NOT_USED'
-          )
+    // Must be used somewhere if defined
+    if (!spec.useInJobPost && !spec.useInApplication) {
+      throw AppError.badRequest(
+        `Spec "${key}" must be enabled for job posting and/or application`,
+        'CATEGORY_SPEC_NOT_USED'
+      );
+    }
+
+    // Required flags only make sense if used in that flow
+    if (spec.requiredInJobPost && !spec.useInJobPost) {
+      throw AppError.badRequest(
+        `Spec "${key}" cannot be required in job post if disabled`,
+        'CATEGORY_SPEC_INVALID_REQUIRED_FLAG'
+      );
+    }
+    if (spec.requiredInApplication && !spec.useInApplication) {
+      throw AppError.badRequest(
+        `Spec "${key}" cannot be required in application if disabled`,
+        'CATEGORY_SPEC_INVALID_REQUIRED_FLAG'
+      );
+    }
+
+    // Type-specific validation
+    if (spec.type === 'select' || spec.type === 'multi_select') {
+      if (!Array.isArray(spec.options) || spec.options.length === 0) {
+        throw AppError.badRequest(
+          `Spec "${key}" of type "${spec.type}" must have non-empty options`,
+          'CATEGORY_SPEC_OPTIONS_REQUIRED'
         );
       }
-
-      // Required flags only make sense if used in that flow
-      if (spec.requiredInJobPost && !spec.useInJobPost) {
-        return next(
-          AppError.badRequest(
-            `Spec "${key}" cannot be required in job post if disabled`,
-            'CATEGORY_SPEC_INVALID_REQUIRED_FLAG'
-          )
+      const normalized = spec.options
+        .map((o) => (typeof o === 'string' ? o.trim() : ''))
+        .filter(Boolean);
+      const unique = Array.from(new Set(normalized));
+      if (unique.length === 0) {
+        throw AppError.badRequest(
+          `Spec "${key}" of type "${spec.type}" must have valid options`,
+          'CATEGORY_SPEC_OPTIONS_INVALID'
         );
       }
-      if (spec.requiredInApplication && !spec.useInApplication) {
-        return next(
-          AppError.badRequest(
-            `Spec "${key}" cannot be required in application if disabled`,
-            'CATEGORY_SPEC_INVALID_REQUIRED_FLAG'
-          )
-        );
-      }
-
-      // Type-specific validation
-      if (spec.type === 'select' || spec.type === 'multi_select') {
-        if (!Array.isArray(spec.options) || spec.options.length === 0) {
-          return next(
-            AppError.badRequest(
-              `Spec "${key}" of type "${spec.type}" must have non-empty options`,
-              'CATEGORY_SPEC_OPTIONS_REQUIRED'
-            )
-          );
-        }
-        const normalized = spec.options
-          .map((o) => (typeof o === 'string' ? o.trim() : ''))
-          .filter(Boolean);
-        const unique = Array.from(new Set(normalized));
-        if (unique.length === 0) {
-          return next(
-            AppError.badRequest(
-              `Spec "${key}" of type "${spec.type}" must have valid options`,
-              'CATEGORY_SPEC_OPTIONS_INVALID'
-            )
-          );
-        }
-        spec.options = unique;
-      } else {
-        // Ensure options are not accidentally persisted for non-option types
-        if (Array.isArray(spec.options) && spec.options.length > 0) {
-          spec.options = undefined;
-        }
-      }
-
-      if (spec.type === 'number') {
-        if (
-          spec.min !== undefined &&
-          spec.max !== undefined &&
-          spec.max < spec.min
-        ) {
-          return next(
-            AppError.badRequest(
-              `Spec "${key}" number range is invalid (max < min)`,
-              'CATEGORY_SPEC_NUMBER_RANGE_INVALID'
-            )
-          );
-        }
+      spec.options = unique;
+    } else {
+      // Ensure options are not accidentally persisted for non-option types
+      if (Array.isArray(spec.options) && spec.options.length > 0) {
+        spec.options = undefined;
       }
     }
 
-    next();
-  } catch (err) {
-    next(err);
+    if (spec.type === 'number') {
+      if (
+        spec.min !== undefined &&
+        spec.max !== undefined &&
+        spec.max < spec.min
+      ) {
+        throw AppError.badRequest(
+          `Spec "${key}" number range is invalid (max < min)`,
+          'CATEGORY_SPEC_NUMBER_RANGE_INVALID'
+        );
+      }
+    }
   }
 });
 
 // Update the updatedAt field before saving
-categorySchema.pre('save', function (next) {
+categorySchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 // Index for faster queries

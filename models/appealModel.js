@@ -160,13 +160,12 @@ appealSchema.index({ respondent: 1, createdAt: -1 });
 appealSchema.index({ status: 1, createdAt: -1 });
 
 // Pre-save hook to update updatedAt
-appealSchema.pre('save', function (next) {
+appealSchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 // Populate opener and respondent on find
-appealSchema.pre(/^find/, function (next) {
+appealSchema.pre(/^find/, function () {
   this.populate({
     path: 'opener',
     select: 'name email photo role',
@@ -195,7 +194,6 @@ appealSchema.pre(/^find/, function (next) {
       path: 'resolvedBy',
       select: 'name email role',
     });
-  next();
 });
 
 // Static method to check if contract has active appeal

@@ -107,11 +107,10 @@ subscriptionSchema.index({ endDate: 1 });
 subscriptionSchema.index({ limitResetDate: 1 });
 
 // Update the updatedAt field
-subscriptionSchema.pre('save', function (next) {
+subscriptionSchema.pre('save', function () {
   if (!this.isNew) {
     this.updatedAt = Date.now();
   }
-  next();
 });
 
 // Update student subscription tier when subscription changes
@@ -161,12 +160,11 @@ subscriptionSchema.methods.resetMonthlyLimit = async function () {
 };
 
 // Populate student information when querying
-subscriptionSchema.pre(/^find/, function (next) {
+subscriptionSchema.pre(/^find/, function () {
   this.populate({
     path: 'student',
     select: 'name email photo role',
   });
-  next();
 });
 
 const Subscription = mongoose.model('Subscription', subscriptionSchema);

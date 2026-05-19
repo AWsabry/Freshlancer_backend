@@ -169,11 +169,10 @@ couponSchema.index({ featured: 1 });
 // Note: couponCode already has unique: true, which automatically creates an index, so we don't need to add it again
 
 // Update the updatedAt field
-couponSchema.pre('save', function(next) {
+couponSchema.pre('save', function () {
   if (!this.isNew) {
     this.updatedAt = Date.now();
   }
-  next();
 });
 
 // Automatically deactivate expired coupons

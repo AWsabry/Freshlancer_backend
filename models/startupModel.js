@@ -99,9 +99,8 @@ const startupSchema = new mongoose.Schema({
 });
 
 // Update the updatedAt field before saving
-startupSchema.pre('save', function (next) {
+startupSchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
 // Index for faster queries

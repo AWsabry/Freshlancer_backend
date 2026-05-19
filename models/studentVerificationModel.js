@@ -87,7 +87,7 @@ studentVerificationSchema.index({ status: 1 });
 studentVerificationSchema.index({ uploadedAt: -1 });
 
 // Populate student and reviewer information when querying
-studentVerificationSchema.pre(/^find/, function (next) {
+studentVerificationSchema.pre(/^find/, function () {
   this.populate({
     path: 'student',
     select: 'name email photo role',
@@ -95,7 +95,6 @@ studentVerificationSchema.pre(/^find/, function (next) {
     path: 'reviewedBy',
     select: 'name email role',
   });
-  next();
 });
 
 // Update student verification status when document is approved

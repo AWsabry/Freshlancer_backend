@@ -580,18 +580,16 @@ const userSchema = new mongoose.Schema({
 });
 
 //check if password is modified and hash it
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
+userSchema.pre('save', async function () {
+  if (!this.isModified('password')) return;
   this.password = await bcrypt.hash(this.password, 12);
   this.passwordConfirm = undefined;
-  next();
 });
 
 //update passwordChangedAt when password is changed
-userSchema.pre('save', function (next) {
-  if (!this.isModified('password') || this.isNew) return next();
+userSchema.pre('save', function () {
+  if (!this.isModified('password') || this.isNew) return;
   this.passwordChangedAt = Date.now() - 1000;
-  next();
 });
 
 

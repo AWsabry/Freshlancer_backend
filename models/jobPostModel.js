@@ -147,19 +147,16 @@ const jobPostSchema = new mongoose.Schema({
 });
 
 // Validate budget range
-jobPostSchema.pre('save', function (next) {
+jobPostSchema.pre('save', function () {
   if (this.budget.max < this.budget.min) {
-    return next(
-      new Error(
-        'Maximum budget must be greater than or equal to minimum budget'
-      )
+    throw new Error(
+      'Maximum budget must be greater than or equal to minimum budget'
     );
   }
-  next();
 });
 
 // Create slug from title with error handling
-jobPostSchema.pre('save', async function (next) {
+jobPostSchema.pre('save', async function () {
   if (this.isModified('title') && this.title) {
     try {
       // Clean the title first - remove extra whitespace and special characters
@@ -229,19 +226,17 @@ jobPostSchema.pre('save', async function (next) {
       this.slug = `job-${timestamp}-${randomStr}`;
     }
   }
-  next();
 });
 
 // Update the updatedAt field
-jobPostSchema.pre('save', function (next) {
+jobPostSchema.pre('save', function () {
   if (!this.isNew) {
     this.updatedAt = Date.now();
   }
-  next();
 });
 
 // Populate client information when querying
-jobPostSchema.pre(/^find/, function (next) {
+jobPostSchema.pre(/^find/, function () {
   this.populate({
     path: 'client',
     select: 'name email photo role',
@@ -250,7 +245,6 @@ jobPostSchema.pre(/^find/, function (next) {
     path: 'startup',
     select: 'startupName',
   });
-  next();
 });
 
 // Index for better query performance

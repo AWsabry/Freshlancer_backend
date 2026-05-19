@@ -93,7 +93,7 @@ withdrawalSchema.index({ status: 1 });
 withdrawalSchema.index({ transaction: 1 });
 
 // Update timestamps
-withdrawalSchema.pre('save', function (next) {
+withdrawalSchema.pre('save', function () {
   this.updatedAt = Date.now();
   if (this.isModified('status')) {
     switch (this.status) {
@@ -108,11 +108,10 @@ withdrawalSchema.pre('save', function (next) {
         break;
     }
   }
-  next();
 });
 
 // Populate user and transaction
-withdrawalSchema.pre(/^find/, function (next) {
+withdrawalSchema.pre(/^find/, function () {
   this.populate({
     path: 'user',
     select: 'name email phone role',
@@ -120,7 +119,6 @@ withdrawalSchema.pre(/^find/, function (next) {
     path: 'transaction',
     select: 'amount currency status description invoiceNumber',
   });
-  next();
 });
 
 const Withdrawal = mongoose.model('Withdrawal', withdrawalSchema);
