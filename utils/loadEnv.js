@@ -21,14 +21,18 @@ function resolveEnvPath() {
   }
 
   const isProd = process.env.NODE_ENV === 'production';
-  const primary = path.join(
-    apiRoot,
-    isProd ? 'config.production.env' : 'config.development.env'
-  );
+  const candidates = isProd
+    ? ['.config.production.env', 'config.production.env']
+    : ['.config.development.env', 'config.development.env'];
 
-  if (fs.existsSync(primary)) {
-    return primary;
+  for (const name of candidates) {
+    const candidate = path.join(apiRoot, name);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
+
+  const primary = path.join(apiRoot, candidates[candidates.length - 1]);
 
   const legacy = path.join(apiRoot, 'config.env');
   if (fs.existsSync(legacy)) {

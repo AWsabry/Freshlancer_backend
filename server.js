@@ -10,12 +10,14 @@ const cron = require('node-cron');
 (function loadEnvFile() {
   const base = __dirname;
   const configEnv = path.join(base, 'config.env');
-  const devEnv = path.join(base, 'config.development.env');
-  const prodEnv = path.join(base, 'config.production.env');
+  const devEnv = path.join(base, '.config.development.env');
+  const prodEnv = path.join(base, '.config.production.env');
+  const devEnvLegacy = path.join(base, 'config.development.env');
+  const prodEnvLegacy = path.join(base, 'config.production.env');
   const candidates =
     process.env.NODE_ENV === 'production'
-      ? [prodEnv, configEnv]
-      : [devEnv, configEnv];
+      ? [prodEnv, prodEnvLegacy, configEnv]
+      : [devEnv, devEnvLegacy, configEnv];
   const chosen = candidates.find((p) => fs.existsSync(p)) || configEnv;
   dotenv.config({ path: chosen });
 })();
