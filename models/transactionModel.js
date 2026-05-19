@@ -182,7 +182,7 @@ transactionSchema.index({ payer: 1, payee: 1 });
 transactionSchema.index({ createdAt: -1 });
 
 // Generate unique invoice number
-transactionSchema.pre('save', async function (next) {
+transactionSchema.pre('save', async function () {
   if (this.isNew && !this.invoiceNumber) {
     const date = new Date();
     const year = date.getFullYear();
@@ -231,7 +231,6 @@ transactionSchema.pre('save', async function (next) {
     
     this.invoiceNumber = invoiceNumber;
   }
-  next();
 });
 
 // Update the updatedAt field

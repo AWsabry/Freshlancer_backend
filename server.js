@@ -1,11 +1,26 @@
+const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
 // const preventSleep = require('./preventSleep');
 
-// Load config from same directory as server.js (works regardless of process cwd / PM2)
-dotenv.config({ path: path.join(__dirname, 'config.env') });
+// Load config from same directory as server.js (works regardless of process cwd / PM2).
+// Prefer config.development.env / config.production.env when present; fall back to config.env.
+(function loadEnvFile() {
+  const base = __dirname;
+  const configEnv = path.join(base, 'config.env');
+  const devEnv = path.join(base, '.config.development.env');
+  const prodEnv = path.join(base, '.config.production.env');
+  const devEnvLegacy = path.join(base, 'config.development.env');
+  const prodEnvLegacy = path.join(base, 'config.production.env');
+  const candidates =
+    process.env.NODE_ENV === 'production'
+      ? [prodEnv, prodEnvLegacy, configEnv]
+      : [devEnv, devEnvLegacy, configEnv];
+  const chosen = candidates.find((p) => fs.existsSync(p)) || configEnv;
+  dotenv.config({ path: chosen });
+})();
 
 //listen to uncaught exceptions
 //uncaught exceptions are exceptions that are not handled by express
@@ -16,6 +31,13 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = require('./app');
+
+if (!process.env.DATABASE) {
+  console.error(
+    'DATABASE is not set. Add it to config.development.env (non-production), config.production.env (production), or config.env.',
+  );
+  process.exit(1);
+}
 
 // Connect to MongoDB
 // Note: If your DATABASE connection string contains query parameters like w=majority, wtimeout, j, fsync,

@@ -172,13 +172,13 @@ notificationSchema.pre('save', function (next) {
 });
 
 // Check user's notification preferences before creating
-notificationSchema.pre('save', async function (next) {
+notificationSchema.pre('save', async function () {
   if (this.isNew) {
     const User = mongoose.model('User');
     const user = await User.findById(this.user);
 
     if (!user) {
-      return next(new Error('User not found'));
+      throw new Error('User not found');
     }
 
     // Check email notification preference
@@ -202,7 +202,6 @@ notificationSchema.pre('save', async function (next) {
       }
     }
   }
-  next();
 });
 
 // Populate user information when querying
