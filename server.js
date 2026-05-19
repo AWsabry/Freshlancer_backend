@@ -1,9 +1,24 @@
+const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
 // const preventSleep = require('./preventSleep');
 
-require('./utils/loadEnv').loadEnv();
+// Load config from same directory as server.js (works regardless of process cwd / PM2).
+// Prefer config.development.env / config.production.env when present; fall back to config.env.
+(function loadEnvFile() {
+  const base = __dirname;
+  const configEnv = path.join(base, 'config.env');
+  const devEnv = path.join(base, 'config.development.env');
+  const prodEnv = path.join(base, 'config.production.env');
+  const candidates =
+    process.env.NODE_ENV === 'production'
+      ? [prodEnv, configEnv]
+      : [devEnv, configEnv];
+  const chosen = candidates.find((p) => fs.existsSync(p)) || configEnv;
+  dotenv.config({ path: chosen });
+})();
 
 //listen to uncaught exceptions
 //uncaught exceptions are exceptions that are not handled by express
@@ -15,9 +30,25 @@ process.on('uncaughtException', (err) => {
 
 const app = require('./app');
 
-// Connect to MongoDB (Mongoose 8+ / MongoDB Node driver 6+ — no legacy useNewUrlParser / useUnifiedTopology)
+if (!process.env.DATABASE) {
+  console.error(
+    'DATABASE is not set. Add it to config.development.env (non-production), config.production.env (production), or config.env.',
+  );
+  process.exit(1);
+}
+
+// Connect to MongoDB
+// Note: If your DATABASE connection string contains query parameters like w=majority, wtimeout, j, fsync,
+// these should be removed from the URL and handled by mongoose options if needed.
+// The useUnifiedTopology option addresses the Server Discovery deprecation warning.
 mongoose
-  .connect(process.env.DATABASE)
+  .connect(process.env.DATABASE, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    useFindAndModify: false,
+    // Write concern is handled automatically by mongoose
+    // If you need custom write concern, use: writeConcern: { w: 'majority', wtimeout: 5000 }
+  })
   .then(() => {
     console.log('DB connected successfully');
     
@@ -57,16 +88,10 @@ const gracefulShutdown = (signal) => {
   console.log(`${signal} received. Shutting down gracefully...`);
   server.close(() => {
     console.log('HTTP server closed.');
-    mongoose.connection
-      .close()
-      .then(() => {
-        console.log('MongoDB connection closed.');
-        process.exit(0);
-      })
-      .catch((closeErr) => {
-        console.error('MongoDB close error:', closeErr);
-        process.exit(1);
-      });
+    mongoose.connection.close(false, () => {
+      console.log('MongoDB connection closed.');
+      process.exit(0);
+    });
   });
 };
 
