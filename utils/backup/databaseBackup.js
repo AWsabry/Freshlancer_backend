@@ -272,7 +272,7 @@ async function getBackupList() {
  * Send backup completion email notification
  */
 async function sendBackupNotification(backupResult, cleanupResult) {
-  const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_USER;
+  const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_FROM;
   
   if (!adminEmail) {
     logger.warn('No admin email configured. Skipping backup notification email.');
@@ -358,7 +358,7 @@ async function runDailyBackup() {
 
     // Try to send error notification
     try {
-      const adminEmail = process.env.ADMIN_EMAIL || process.env.SMTP_USER;
+      const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_FROM;
       if (adminEmail) {
         await sendEmail({
           type: 'backup-error',

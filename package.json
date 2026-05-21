@@ -25,6 +25,7 @@
   "author": "Abdelrahman Wael",
   "license": "ISC",
   "dependencies": {
+    "@sendgrid/mail": "^8.1.6",
     "aws-sdk": "^2.1313.0",
     "axios": "^1.3.2",
     "bcryptjs": "^2.4.3",

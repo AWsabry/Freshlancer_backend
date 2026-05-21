@@ -34,6 +34,13 @@ const createTransporter = async () => {
       });
       
       logger.info('📧 Using configured SMTP service:', process.env.SMTP_HOST);
+
+      const host = (process.env.SMTP_HOST || '').toLowerCase();
+      if (host.includes('sendgrid') && !(process.env.EMAIL_FROM && process.env.EMAIL_FROM.trim())) {
+        logger.warn(
+          '⚠️  SendGrid SMTP detected but EMAIL_FROM is not set. Set EMAIL_FROM to your verified sender address.'
+        );
+      }
     } else {
       // Fallback to Ethereal Email for development/testing
       logger.warn('⚠️  No SMTP configuration found. Using Ethereal Email (testing service).');

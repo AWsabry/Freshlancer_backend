@@ -3,7 +3,8 @@ const AdminEmailCampaign = require('../models/adminEmailCampaignModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const logger = require('../utils/logger');
-const { createTransporter, logEmailResult } = require('../utils/email/emailTransporter');
+const { getEmailFrom } = require('../utils/email/emailConstants');
+const { deliverMail, getEmailDeliveryMode } = require('../utils/email/sendgridMail');
 const { createEmailWrapper } = require('../utils/email/emailHelpers');
 const fs = require('fs').promises;
 const path = require('path');
@@ -12,6 +13,9 @@ const MAX_RECIPIENTS = parseInt(process.env.ADMIN_EMAIL_MAX_RECIPIENTS || '2000'
 const BCC_CHUNK_SIZE = parseInt(process.env.ADMIN_EMAIL_BCC_CHUNK_SIZE || '50', 10);
 const ADMIN_EMAIL_UPLOAD_DIR =
   process.env.ADMIN_EMAIL_UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'admin-emails');
+const ADMIN_EMAIL_SEND_DELAY_MS = parseInt(process.env.ADMIN_EMAIL_SEND_DELAY_MS || '0', 10);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const parseBoolean = (val, defaultValue = false) => {
   if (val === undefined || val === null) return defaultValue;
@@ -343,15 +347,14 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
   }
 
   const baseWrappedHtml = buildWrappedHtml({ subject, htmlBody, textBody, wrap });
-
-  const transporter = await createTransporter();
+  const deliveryMode = getEmailDeliveryMode();
 
   const allAttachments = [
     ...filesToAttachments(attachments),
     // Inline attachments are added per send after token replacement
   ];
 
-  const from = `Freshlancer Team<${process.env.SMTP_USER || 'noreply@freshlancer.online'}>`;
+  const from = getEmailFrom();
 
   const results = [];
   let sentCount = 0;
@@ -389,12 +392,15 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
       };
 
       try {
-        const info = await transporter.sendMail(mailOptions);
-        logEmailResult(info, u.email);
+        const info = await deliverMail(mailOptions, u.email);
         results.push({ messageId: info.messageId, chunkSize: 1 });
         sentCount += 1;
+        if (ADMIN_EMAIL_SEND_DELAY_MS > 0) {
+          await sleep(ADMIN_EMAIL_SEND_DELAY_MS);
+        }
       } catch (e) {
         failedCount += 1;
+        logger.error('Admin email send failed for recipient:', u.email, e.message);
       }
     }
   } else {
@@ -422,7 +428,7 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
     for (const bccChunk of chunks) {
       const mailOptions = {
         from,
-        to: process.env.ADMIN_EMAIL_TO_FALLBACK || from,
+        to: process.env.ADMIN_EMAIL_TO_FALLBACK || process.env.ADMIN_EMAIL || from,
         bcc: bccChunk,
         subject,
         text: text || 'Please view this email in an HTML-capable email client.',
@@ -433,10 +439,12 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
             : undefined,
       };
 
-      const info = await transporter.sendMail(mailOptions);
-      logEmailResult(info, `(bcc x${bccChunk.length})`);
+      const info = await deliverMail(mailOptions, `(bcc x${bccChunk.length})`);
       results.push({ messageId: info.messageId, chunkSize: bccChunk.length });
       sentCount += bccChunk.length;
+      if (ADMIN_EMAIL_SEND_DELAY_MS > 0) {
+        await sleep(ADMIN_EMAIL_SEND_DELAY_MS);
+      }
     }
   }
 
@@ -476,6 +484,7 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
     recipients: recipientUsers.length,
     chunks: results.length,
     needsPersonalization,
+    deliveryMode,
     sentCount,
     failedCount,
     attachments: attachments.length,
@@ -491,6 +500,7 @@ exports.sendAdminEmail = catchAsync(async (req, res, next) => {
       chunks: results.length,
       sentCount,
       failedCount,
+      deliveryMode,
       results,
     },
   });

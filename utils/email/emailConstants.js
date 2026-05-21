@@ -22,9 +22,23 @@ const LOGO_URL =
 // Email domain - Loaded from environment variable
 const EMAIL_DOMAIN = (process.env.EMAIL_DOMAIN && process.env.EMAIL_DOMAIN.trim()) || 'freshlancer.com';
 
+/**
+ * Build the From header for outbound mail.
+ * EMAIL_FROM is required for SendGrid SMTP (SMTP_USER is "apikey").
+ */
+function getEmailFrom() {
+  const address =
+    (process.env.EMAIL_FROM && process.env.EMAIL_FROM.trim()) ||
+    process.env.SMTP_USER ||
+    `noreply@${EMAIL_DOMAIN}`;
+  const name = (process.env.EMAIL_FROM_NAME && process.env.EMAIL_FROM_NAME.trim()) || 'Freshlancer Team';
+  return `${name}<${address}>`;
+}
+
 module.exports = {
   BRAND_COLORS,
   LOGO_URL,
   EMAIL_DOMAIN,
+  getEmailFrom,
 };
 

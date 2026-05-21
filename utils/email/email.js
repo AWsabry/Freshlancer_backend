@@ -1,4 +1,4 @@
-const { EMAIL_DOMAIN } = require('./emailConstants');
+const { getEmailFrom } = require('./emailConstants');
 const { getEmailTemplate } = require('./emailTemplates');
 const { createTransporter, logEmailResult } = require('./emailTransporter');
 const logger = require('../logger');
@@ -31,7 +31,7 @@ const sendEmail = async (options) => {
 
     // Build email options
     const mailOptions = {
-      from: `Freshlancer Team<${process.env.SMTP_USER || `noreply@${EMAIL_DOMAIN}`}>`,
+      from: getEmailFrom(),
       to: options.email,
       subject: template.subject || options.subject,
       text: options.message || 'Please view this email in an HTML-capable email client.',

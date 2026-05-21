@@ -41,7 +41,9 @@ Add the following to your `config.env` file:
 ADMIN_EMAIL=your-email@example.com
 ```
 
-If `ADMIN_EMAIL` is not set, the system will use `SMTP_USER` as the notification email address.
+If `ADMIN_EMAIL` is not set, the system will use `EMAIL_FROM` as the notification email address.
+
+For SMTP configuration (SendGrid), see [docs/email.md](../../docs/email.md).
 
 ### MongoDB Tools Required
 
@@ -233,9 +235,10 @@ mongorestore --uri="mongodb+srv://user:password@cluster.mongodb.net/Freshlancer"
 - Ensure the database user has read permissions
 
 ### Email Notifications Not Received
-- Check `ADMIN_EMAIL` or `SMTP_USER` is set correctly
-- Verify SMTP settings are correct
+- Check `ADMIN_EMAIL` or `EMAIL_FROM` is set correctly
+- Verify SendGrid SMTP settings (`SMTP_HOST`, `SMTP_USER=apikey`, `SMTP_PASS`, `EMAIL_FROM`) — see [docs/email.md](../../docs/email.md)
 - Check server logs for email sending errors
+- Check SendGrid Activity for bounces or blocks
 
 ### Backups Taking Too Long
 - Large databases may take time to backup
