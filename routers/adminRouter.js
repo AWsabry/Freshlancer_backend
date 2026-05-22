@@ -10,6 +10,11 @@ const { uploadAdminEmail } = require('../middleware/emailUpload');
 const { uploadWithErrorHandling } = require('../middleware/uploadErrorHandler');
 const withdrawalController = require('../controllers/withdrawalController');
 const adminEmailController = require('../controllers/adminEmailController');
+const educationBadgeController = require('../controllers/educationBadgeController');
+const {
+  uploadEducationLogo,
+  uploadEducationCertificateImage,
+} = require('../middleware/upload');
 
 // Protect all routes and restrict to admin only
 router.use(authController.protect);
@@ -44,6 +49,47 @@ router.get('/users/:id', adminController.getUserById);
 router.patch('/users/:id/suspend', adminController.toggleUserSuspension);
 router.patch('/users/:id/verify', adminController.toggleUserVerification);
 router.delete('/users/:id', adminController.deleteUser);
+
+// Education partner badges
+router
+  .route('/education-entities')
+  .get(educationBadgeController.getAllEntities)
+  .post(
+    uploadWithErrorHandling(uploadEducationLogo.single('logo')),
+    educationBadgeController.createEntity
+  );
+
+router
+  .route('/education-entities/:id')
+  .get(educationBadgeController.getEntity)
+  .patch(
+    uploadWithErrorHandling(uploadEducationLogo.single('logo')),
+    educationBadgeController.updateEntity
+  )
+  .delete(educationBadgeController.deleteEntity);
+
+router.post(
+  '/education-entities/:id/certificates',
+  uploadWithErrorHandling(uploadEducationCertificateImage.single('image')),
+  educationBadgeController.createCertificate
+);
+
+router
+  .route('/education-certificates/:id')
+  .patch(
+    uploadWithErrorHandling(uploadEducationCertificateImage.single('image')),
+    educationBadgeController.updateCertificate
+  )
+  .delete(educationBadgeController.deleteCertificate);
+
+router.post('/education-badges/grant-bulk', educationBadgeController.grantBulk);
+router.get('/education-badges/students/search', educationBadgeController.searchStudents);
+router.get('/education-badges/requests', educationBadgeController.getAdminRequests);
+router.patch('/education-badges/requests/:id/approve', educationBadgeController.approveRequest);
+router.patch('/education-badges/requests/:id/reject', educationBadgeController.rejectRequest);
+router.get('/education-badges/awards', educationBadgeController.getAdminAwards);
+router.delete('/education-badges/awards/:id/proof', educationBadgeController.deleteAdminAwardProof);
+router.delete('/education-badges/awards/:id', educationBadgeController.revokeAward);
 
 // Student verification management
 router.get('/students/verification', adminController.getStudentsWithVerification);

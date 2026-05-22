@@ -397,6 +397,66 @@ const EMAIL_TEMPLATES = {
       `, BRAND_COLORS.primary)
     };
   },
+
+  'education-badge-granted': (options) => {
+    const certLine = options.track
+      ? `<strong>${options.certificateTitle}</strong> (${options.track})`
+      : `<strong>${options.certificateTitle}</strong>`;
+
+    return {
+      subject: `🎓 New education badge: ${options.certificateTitle}`,
+      content: createEmailWrapper(
+        createHeader('Education badge awarded! 🎓') +
+          createGreeting(options.name) +
+          createParagraph(
+            `You have been awarded a certificate badge from <strong>${options.entityName}</strong> on Freshlancer.`
+          ) +
+          createInfoBox([
+            `Partner: ${options.entityName}`,
+            `Certificate: ${certLine}`,
+            'View it on your profile under Education partners.',
+          ]) +
+          createParagraph(
+            'You can upload proof of completion on your certificate details page anytime.'
+          ) +
+          createEmailButton(
+            options.dashboardUrl || 'https://freshlancer.online/student/education-badges',
+            'View my badges'
+          ),
+        BRAND_COLORS.primary
+      ),
+    };
+  },
+
+  'education-badge-revoked': (options) => {
+    const certLine = options.track
+      ? `${options.certificateTitle} (${options.track})`
+      : options.certificateTitle;
+
+    return {
+      subject: `Education badge removed: ${options.certificateTitle}`,
+      content: createEmailWrapper(
+        createHeader('Education badge revoked') +
+          createGreeting(options.name) +
+          createParagraph(
+            `An administrator has removed the following education badge from your Freshlancer profile:`
+          ) +
+          createInfoBox([
+            `Partner: ${options.entityName}`,
+            `Certificate: ${certLine}`,
+          ]) +
+          createParagraph(
+            'If you believe this was a mistake, please contact our support team or submit a new badge request from your profile.'
+          ) +
+          createEmailButton(
+            options.dashboardUrl || 'https://freshlancer.online/student/profile',
+            'Go to profile'
+          ),
+        BRAND_COLORS.warning
+      ),
+    };
+  },
+
   'verification-rejected': (options) => {
     return {
       subject: '⚠️ Student Verification Update - Action Required',

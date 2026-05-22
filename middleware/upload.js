@@ -18,6 +18,8 @@ ensureUploadDir('uploads/startup-logos');
 ensureUploadDir('uploads/photos');
 ensureUploadDir('uploads/appeal-documents');
 ensureUploadDir('uploads/withdrawal-evidence');
+ensureUploadDir('uploads/education-logos');
+ensureUploadDir('uploads/education-certificates');
 
 // Helper function to validate user authentication in filename generators
 const validateUserForUpload = (req, cb) => {
@@ -385,6 +387,88 @@ const uploadWithdrawalEvidence = multer({
   },
 });
 
+const educationImageFileFilter = (req, file, cb) => {
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new AppError('Invalid file type. Only JPG, PNG, GIF, and WEBP images are allowed.', 400), false);
+  }
+};
+
+const educationLogoStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/education-logos'),
+  filename: (req, file, cb) => {
+    const id = req.params.id || req.user?._id?.toString() || 'new';
+    const ext = path.extname(file.originalname);
+    cb(null, `entity-${id}-${Date.now()}${ext}`);
+  },
+});
+
+const educationCertificateStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/education-certificates'),
+  filename: (req, file, cb) => {
+    const id = req.params.id || 'cert';
+    const ext = path.extname(file.originalname);
+    cb(null, `cert-${id}-${Date.now()}${ext}`);
+  },
+});
+
+const uploadEducationLogo = multer({
+  storage: educationLogoStorage,
+  fileFilter: educationImageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+const uploadEducationCertificateImage = multer({
+  storage: educationCertificateStorage,
+  fileFilter: educationImageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+const educationAwardProofStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = 'uploads/education-certificate-proofs';
+    ensureUploadDir(dir);
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    const awardId = (req.params && req.params.awardId) || 'award';
+    const ext = path.extname(file.originalname);
+    cb(null, `proof-${awardId}-${userId}-${Date.now()}${ext}`);
+  },
+});
+
+const uploadEducationAwardProof = multer({
+  storage: educationAwardProofStorage,
+  fileFilter: additionalDocumentFileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+const educationRequestProofStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = 'uploads/education-request-proofs';
+    ensureUploadDir(dir);
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const validationError = validateUserForUpload(req, cb);
+    if (validationError) return;
+    const userId = req.user._id ? req.user._id.toString() : req.user.id;
+    const ext = path.extname(file.originalname);
+    cb(null, `request-proof-${userId}-${Date.now()}${ext}`);
+  },
+});
+
+const uploadEducationRequestProof = multer({
+  storage: educationRequestProofStorage,
+  fileFilter: additionalDocumentFileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 module.exports = {
   uploadResume,
   uploadVerificationDocument,
@@ -393,4 +477,8 @@ module.exports = {
   uploadPhoto,
   uploadAppealDocument,
   uploadWithdrawalEvidence,
+  uploadEducationLogo,
+  uploadEducationCertificateImage,
+  uploadEducationAwardProof,
+  uploadEducationRequestProof,
 };

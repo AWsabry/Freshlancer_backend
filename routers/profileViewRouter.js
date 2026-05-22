@@ -20,6 +20,11 @@ router.get('/shortlisted', authController.restrictTo('client'), profileViewContr
 router.post('/shortlist', authController.restrictTo('client'), profileViewController.shortlistProfile);
 router.patch('/action', authController.restrictTo('client'), profileViewController.updateProfileAction);
 router.get('/student/:studentId', authController.restrictTo('client'), profileViewController.getStudentProfile);
+router.post(
+  '/student/:studentId/summary',
+  authController.restrictTo('client'),
+  profileViewController.generateStudentProfileSummary
+);
 
 // Student routes
 router.get('/viewers', authController.restrictTo('student'), profileViewController.getMyProfileViewers);

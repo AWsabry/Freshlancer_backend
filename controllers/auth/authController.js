@@ -954,27 +954,6 @@ exports.updateMe = catchAsync(async (req, res, next) => {
 
   // 4) Update user document
   try {
-    // Use $set operator for nested fields
-    const setData = {};
-    Object.keys(updateData).forEach(key => {
-      if (key.includes('.')) {
-        // Handle nested fields with $set
-        const parts = key.split('.');
-        let current = setData;
-        for (let i = 0; i < parts.length - 1; i++) {
-          if (!current[parts[i]]) {
-            current[parts[i]] = {};
-          }
-          current = current[parts[i]];
-        }
-        current[parts[parts.length - 1]] = updateData[key];
-      } else {
-        setData[key] = updateData[key];
-      }
-    });
-
-    // For partial updates, we need to be careful with validation
-    // Load the user first to preserve existing data
     const user = await User.findById(req.user.id);
     if (!user) {
       return next(new AppError('User not found', 404));
@@ -1007,25 +986,16 @@ exports.updateMe = catchAsync(async (req, res, next) => {
       }
     }
 
-    // Apply updates to the user object
-    Object.keys(setData).forEach(key => {
-      if (key.includes('.')) {
-        // Handle nested fields
-        const parts = key.split('.');
-        let current = user;
-        for (let i = 0; i < parts.length - 1; i++) {
-          if (!current[parts[i]]) {
-            current[parts[i]] = {};
-          }
-          current = current[parts[i]];
-        }
-        current[parts[parts.length - 1]] = setData[key];
-      } else {
-        user[key] = setData[key];
+    // Apply each field via dot paths so resume, additionalDocuments, etc. are preserved.
+    Object.keys(updateData).forEach((key) => {
+      user.set(key, updateData[key]);
+      if (key.startsWith('studentProfile.')) {
+        user.markModified('studentProfile');
+      } else if (key.startsWith('clientProfile.')) {
+        user.markModified('clientProfile');
       }
     });
 
-    // Save with validation - but only validate modified paths
     const updatedUser = await user.save({ validateModifiedOnly: false });
 
     if (!updatedUser) {

@@ -32,6 +32,7 @@ const moderatorRouter = require('./routers/moderatorRouter');
 const contractRouter = require('./routers/contractRouter');
 const appealRouter = require('./routers/appealRouter');
 const externalProfilesRouter = require('./routers/externalProfilesRouter');
+const educationBadgeRouter = require('./routers/educationBadgeRouter');
 const AppError = require('./utils/AppError');
 const globalErrorHandler = require('./controllers/errorController');
 
@@ -243,6 +244,7 @@ app.use('/api/v1/moderator', moderatorRouter);
 app.use('/api/v1/contracts', contractRouter);
 app.use('/api/v1/appeals', appealRouter);
 app.use('/api/v1/external-profiles', externalProfilesRouter);
+app.use('/api/v1/education-badges', educationBadgeRouter);
 if (cvReviewRouter) {
   app.use('/api/v1/cv-review', cvReviewRouter);
 }

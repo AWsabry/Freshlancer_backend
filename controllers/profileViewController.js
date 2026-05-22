@@ -1,9 +1,72 @@
 const ProfileView = require('../models/profileViewModel');
 const User = require('../models/userModel');
 const Notification = require('../models/notificationModel');
+const StudentEducationAward = require('../models/studentEducationAwardModel');
+const JobApplication = require('../models/jobApplicationModel');
+const JobPost = require('../models/jobPostModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 const logger = require('../utils/logger');
+const { groupAwardsByEntityForClient } = require('../utils/educationBadgeHelpers');
+const { sanitizeExternalProfilesPublic } = require('../utils/clientStudentProfileHelpers');
+const { buildStudentProfileSummary } = require('../services/studentProfileSummaryService');
+
+async function assertClientUnlockedStudent(clientId, studentId) {
+  const client = await User.findById(clientId);
+  if (!client) throw new AppError('Client not found', 404);
+
+  const unlockedStudents = client.clientProfile?.unlockedStudents || [];
+  const hasAccess = unlockedStudents.some((id) => id.toString() === studentId);
+  if (!hasAccess) {
+    throw new AppError(
+      "You must unlock this student's contact through an application first",
+      403
+    );
+  }
+  return client;
+}
+
+async function fetchEducationBadgesForStudent(studentId) {
+  const awards = await StudentEducationAward.find({ student: studentId })
+    .populate('entity', 'name slug logoUrl description website')
+    .populate({
+      path: 'certificate',
+      select: 'title track imageUrl description',
+      populate: { path: 'category', select: 'name' },
+    })
+    .sort('-awardedAt');
+  return groupAwardsByEntityForClient(awards);
+}
+
+async function fetchApplicationHistoryForClient(studentId, clientId) {
+  const jobPosts = await JobPost.find({ client: clientId }).select('_id').lean();
+  const jobPostIds = jobPosts.map((j) => j._id);
+  if (jobPostIds.length === 0) return [];
+
+  const apps = await JobApplication.find({
+    student: studentId,
+    jobPost: { $in: jobPostIds },
+  })
+    .populate('jobPost', 'title category status createdAt')
+    .sort('-createdAt')
+    .limit(20)
+    .lean();
+
+  return apps.map((app) => ({
+    _id: app._id,
+    status: app.status,
+    createdAt: app.createdAt,
+    proposalText: app.proposalText,
+    jobPost: app.jobPost
+      ? {
+          _id: app.jobPost._id,
+          title: app.jobPost.title,
+          category: app.jobPost.category,
+          status: app.jobPost.status,
+        }
+      : null,
+  }));
+}
 
 const POINTS_PER_PROFILE = 10; // Points cost to unlock a profile
 
@@ -128,23 +191,17 @@ exports.getStudentProfile = catchAsync(async (req, res, next) => {
     return next(new AppError('Student not found', 404));
   }
 
-  // Get client with unlocked students list
-  const client = await User.findById(req.user._id);
+  await assertClientUnlockedStudent(req.user._id, studentId);
 
-  if (!client) {
-    return next(new AppError('Client not found', 404));
-  }
+  const [educationBadges, applicationHistory] = await Promise.all([
+    fetchEducationBadgesForStudent(studentId),
+    fetchApplicationHistoryForClient(studentId, req.user._id),
+  ]);
 
-  // Check if student is in client's unlocked students list
-  const unlockedStudents = client.clientProfile?.unlockedStudents || [];
-  const hasAccess = unlockedStudents.some(id => id.toString() === studentId);
+  const externalProfilesPublic = sanitizeExternalProfilesPublic(
+    student.studentProfile?.externalProfiles
+  );
 
-  if (!hasAccess) {
-    return next(new AppError('You must unlock this student\'s contact through an application first', 403));
-  }
-
-  // Return full student profile with all nested fields
-  // Using lean() already returns a plain object, so all nested fields are included
   res.status(200).json({
     status: 'success',
     data: {
@@ -164,7 +221,47 @@ exports.getStudentProfile = catchAsync(async (req, res, next) => {
         joinedAt: student.joinedAt,
         createdAt: student.createdAt,
       },
+      educationBadges: { entities: educationBadges },
+      applicationHistory,
+      externalProfilesPublic,
     },
+  });
+});
+
+exports.generateStudentProfileSummary = catchAsync(async (req, res, next) => {
+  if (req.user.role !== 'client') {
+    return next(new AppError('Only clients can summarize student profiles', 403));
+  }
+
+  const { studentId } = req.params;
+  await assertClientUnlockedStudent(req.user._id, studentId);
+
+  const student = await User.findById(studentId)
+    .populate({
+      path: 'studentProfile.university',
+      select: 'name status countryCode',
+    })
+    .lean();
+
+  if (!student || student.role !== 'student') {
+    return next(new AppError('Student not found', 404));
+  }
+
+  const [educationBadges, applicationHistory] = await Promise.all([
+    fetchEducationBadgesForStudent(studentId),
+    fetchApplicationHistoryForClient(studentId, req.user._id),
+  ]);
+
+  const summary = await buildStudentProfileSummary({
+    student,
+    educationBadges: { entities: educationBadges },
+    applicationHistory,
+    externalProfiles: student.studentProfile?.externalProfiles,
+  });
+
+  res.status(200).json({
+    status: 'success',
+    data: { summary },
   });
 });
 
