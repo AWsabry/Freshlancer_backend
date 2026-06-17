@@ -223,11 +223,6 @@ exports.login = catchAsync(async (req, res, next) => {
     return next(new AppError('Invalid email or password', 401));
   }
 
-  // Check if email is verified
-  if (!user.emailVerified) {
-    return next(new AppError('Please verify your email address before logging in. Check your inbox for the verification email or request a new one.', 401));
-  }
-
   // Update lastLoginAt
   user.lastLoginAt = Date.now();
   await user.save({ validateBeforeSave: false });

@@ -40,7 +40,7 @@ router.post('/signup', authController.signup);
  *   post:
  *     tags: [Auth]
  *     summary: Log in with email and password
- *     description: Returns a JWT and sets a `jwt` httpOnly cookie. User must be email-verified. Use **Authorize** in Swagger with the token for protected routes.
+ *     description: Returns a JWT and sets a `jwt` httpOnly cookie. Unverified users receive a token but must verify email before accessing most protected routes. Use **Authorize** in Swagger with the token for protected routes.
  *     requestBody:
  *       required: true
  *       content:
@@ -61,7 +61,7 @@ router.post('/signup', authController.signup);
  *       400:
  *         description: Missing or invalid input
  *       401:
- *         description: Invalid credentials, unverified email, or inactive account
+ *         description: Invalid credentials or inactive account
  */
 router.post('/login', authController.login);
 router.get('/logout', authController.logout);
@@ -75,10 +75,7 @@ router.post('/resendVerificationEmail', authController.resendVerificationEmail);
 // Protect all routes below (require authentication)
 router.use(authController.protect);
 
-// Require email verification for all protected routes
-// This allows resendVerificationEmail to work, but blocks everything else
-router.use(authController.requireEmailVerification);
-
+// /me is available before email verification (verify-email-required page polls status)
 /**
  * @openapi
  * /api/v1/users/me:
@@ -98,6 +95,10 @@ router.use(authController.requireEmailVerification);
  *         description: Not logged in or invalid token
  */
 router.get('/me', authController.getMe);
+
+// Require email verification for all other protected routes
+router.use(authController.requireEmailVerification);
+
 router.patch('/updateMe', authController.updateMe);
 router.patch('/updateMyPassword', authController.updatePassword);
 router.get('/platform-stats', authController.getPlatformStats);
